@@ -7,7 +7,12 @@ is on your clipboard and typed into whatever app you're in (toggle in the window
 * Every transcription is saved locally (SQLite) so you can copy it later, even after a crash.
 * Closing the window keeps Vox in the tray.
 
-## Build (Windows)
+## Install (no tools needed)
+
+Open the repo's **Actions** tab → *Build Windows installer* → the latest run → download **Vox-Windows-installer**, unzip and run the `.exe`.
+The speech model is bundled; nothing else to install. (Run the workflow with **Run workflow** for a fresh build.)
+
+## Build from source (Windows)
 
 Prereqs: Rust (MSVC), Visual Studio Build Tools (C++), CMake, LLVM, WebView2 (included in Windows 11), and `cargo install tauri-cli --version "^2"`.
 
