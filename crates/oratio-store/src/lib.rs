@@ -5,9 +5,9 @@
 use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
-use vox_core::history::{Entry, History, RecordingId, Status};
-use vox_core::lexicon::{Fix, Lexicon};
-use vox_core::CoreError;
+use oratio_core::history::{Entry, History, RecordingId, Status};
+use oratio_core::lexicon::{Fix, Lexicon};
+use oratio_core::CoreError;
 
 /// Append-only list of schema migrations; index + 1 is the `user_version`.
 const MIGRATIONS: &[&str] = &["
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn existing_v1_database_upgrades_without_losing_history() {
-        let dir = std::env::temp_dir().join(format!("vox-store-mig-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("oratio-store-mig-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("h.db");
         {
@@ -328,7 +328,7 @@ mod tests {
 
     #[test]
     fn data_survives_reopen_and_migrations_are_idempotent() {
-        let dir = std::env::temp_dir().join(format!("vox-store-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("oratio-store-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("h.db");
         {

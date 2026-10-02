@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Downloads a Whisper model for Vox into ./models.
+# Downloads a Whisper model for Oratio into ./models.
 #   get-model.sh base    English-only, ~60 MB, for the CPU build (default)
 #   get-model.sh large   large-v3-turbo, ~570 MB, for the GPU build
 set -eu

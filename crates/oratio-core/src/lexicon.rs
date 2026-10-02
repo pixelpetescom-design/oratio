@@ -1,4 +1,4 @@
-//! Port + orchestration for what Vox learns about the user: a personal vocabulary
+//! Port + orchestration for what Oratio learns about the user: a personal vocabulary
 //! (hints for the recogniser) and correction rules (applied to finished text).
 
 use crate::history::{History, RecordingId};

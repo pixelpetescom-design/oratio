@@ -11,18 +11,18 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, PhysicalPosition, WindowEvent};
 use tauri_plugin_global_shortcut::ShortcutState;
-use vox_core::engine::Engine;
-use vox_core::history::History;
-use vox_core::lexicon::Lexicon;
-use vox_core::session::{Input, State};
-use vox_core::stt::Transcriber;
-use vox_store::SqliteStore;
-use vox_stt::WhisperTranscriber;
+use oratio_core::engine::Engine;
+use oratio_core::history::History;
+use oratio_core::lexicon::Lexicon;
+use oratio_core::session::{Input, State};
+use oratio_core::stt::Transcriber;
+use oratio_store::SqliteStore;
+use oratio_stt::WhisperTranscriber;
 
 fn main() {
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
-        // Launched at sign-in with --hidden, Vox starts quietly in the tray.
+        // Launched at sign-in with --hidden, Oratio starts quietly in the tray.
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
         .invoke_handler(tauri::generate_handler![
             commands::get_snapshot,
@@ -76,7 +76,7 @@ fn main() {
             // Engine: loads the model off the UI thread; hotkey is ignored until it is ready.
             let (etx, erx) = channel();
             let candidates = paths::model_candidates(&handle);
-            let loader: Box<dyn FnOnce() -> Result<Box<dyn Transcriber>, vox_core::CoreError> + Send> = Box::new(move || {
+            let loader: Box<dyn FnOnce() -> Result<Box<dyn Transcriber>, oratio_core::CoreError> + Send> = Box::new(move || {
                 let model = paths::find_model(&candidates)?;
                 Ok(Box::new(WhisperTranscriber::load(&model)?))
             });
@@ -100,7 +100,7 @@ fn main() {
 
             // Start/stop is the Ctrl+Win chord, which has to be watched for rather than registered.
             let (on_chord, on_failure) = (ctl.clone(), ctl.clone());
-            vox_keys::spawn(
+            oratio_keys::spawn(
                 move || {
                     // Leave Ctrl+Win to Windows unless dictation is actually available.
                     let ready = on_chord.shared.state.lock().map(|s| matches!(*s, State::Idle | State::Recording | State::CancelPending { .. })).unwrap_or(false);
@@ -127,10 +127,10 @@ fn main() {
             }
 
             // Tray: reopen the window or quit.
-            let show = MenuItem::with_id(app, "show", "Open Vox", true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "show", "Open Oratio", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
-            let mut tray = TrayIconBuilder::new().tooltip("Vox").menu(&menu).show_menu_on_left_click(false);
+            let mut tray = TrayIconBuilder::new().tooltip("Oratio").menu(&menu).show_menu_on_left_click(false);
             if let Some(icon) = app.default_window_icon() {
                 tray = tray.icon(icon.clone());
             }
@@ -155,7 +155,7 @@ fn main() {
         .run(tauri::generate_context!());
 
     if let Err(e) = result {
-        eprintln!("vox failed to start: {e}");
+        eprintln!("oratio failed to start: {e}");
     }
 }
 

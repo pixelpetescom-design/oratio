@@ -1,13 +1,13 @@
 use crate::config::MODEL_FILE;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
-use vox_core::CoreError;
+use oratio_core::CoreError;
 
 /// Everywhere the model may live, most specific first. The installer ships it in
 /// the resource dir; power users can drop a different one in the data dir.
 fn candidates(app: &AppHandle) -> Vec<PathBuf> {
     let mut v = Vec::new();
-    if let Ok(p) = std::env::var("VOX_MODEL") {
+    if let Ok(p) = std::env::var("ORATIO_MODEL") {
         v.push(PathBuf::from(p));
     }
     if let Ok(d) = app.path().app_data_dir() {

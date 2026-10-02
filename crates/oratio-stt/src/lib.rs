@@ -2,9 +2,9 @@
 //! A different engine (e.g. Parakeet) is a second adapter behind the same trait.
 
 use std::path::Path;
-use vox_core::stt::Transcriber;
-use vox_core::vocab::glossary_prompt;
-use vox_core::CoreError;
+use oratio_core::stt::Transcriber;
+use oratio_core::vocab::glossary_prompt;
+use oratio_core::CoreError;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState};
 
 /// Biases the decoder toward cased, punctuated prose with Australian spellings.
@@ -107,11 +107,11 @@ mod tests {
         }
     }
 
-    /// Needs a real model: `VOX_MODEL=models/ggml-base.en-q5_1.bin cargo test -p vox-stt -- --ignored`
+    /// Needs a real model: `ORATIO_MODEL=models/ggml-base.en-q5_1.bin cargo test -p oratio-stt -- --ignored`
     #[test]
     #[ignore = "requires a Whisper model file"]
     fn transcribes_sample() {
-        let model = std::env::var("VOX_MODEL").expect("set VOX_MODEL");
+        let model = std::env::var("ORATIO_MODEL").expect("set ORATIO_MODEL");
         let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/jfk.wav")).expect("sample");
         let audio: Vec<f32> = bytes[44..].chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 / 32768.0).collect();
         let mut t = WhisperTranscriber::load(Path::new(&model)).expect("load");

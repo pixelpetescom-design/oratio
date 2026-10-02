@@ -3,10 +3,10 @@
 //! apps than typing characters one by one.
 //!
 //! Limitation (Windows): input cannot be injected into windows running as
-//! administrator unless Vox does too.
+//! administrator unless Oratio does too.
 
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
-use vox_core::CoreError;
+use oratio_core::CoreError;
 
 fn input_err(e: impl std::fmt::Display) -> CoreError {
     CoreError::Input(e.to_string())

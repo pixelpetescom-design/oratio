@@ -2097,9 +2097,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.189"
+version = "0.2.190"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
 
 [[package]]
 name = "libdbus-sys"
@@ -2699,6 +2699,73 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
+name = "oratio"
+version = "0.1.0"
+dependencies = [
+ "oratio-audio",
+ "oratio-core",
+ "oratio-keys",
+ "oratio-paste",
+ "oratio-store",
+ "oratio-stt",
+ "serde",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-global-shortcut",
+]
+
+[[package]]
+name = "oratio-audio"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "oratio-core",
+]
+
+[[package]]
+name = "oratio-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "oratio-keys"
+version = "0.1.0"
+dependencies = [
+ "device_query",
+ "enigo",
+ "oratio-core",
+]
+
+[[package]]
+name = "oratio-paste"
+version = "0.1.0"
+dependencies = [
+ "enigo",
+ "oratio-core",
+]
+
+[[package]]
+name = "oratio-store"
+version = "0.1.0"
+dependencies = [
+ "oratio-core",
+ "rusqlite",
+]
+
+[[package]]
+name = "oratio-stt"
+version = "0.1.0"
+dependencies = [
+ "oratio-core",
+ "whisper-rs",
+]
 
 [[package]]
 name = "os_info"
@@ -4453,73 +4520,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "vox"
-version = "0.1.0"
-dependencies = [
- "serde",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-global-shortcut",
- "vox-audio",
- "vox-core",
- "vox-keys",
- "vox-paste",
- "vox-store",
- "vox-stt",
-]
-
-[[package]]
-name = "vox-audio"
-version = "0.1.0"
-dependencies = [
- "cpal",
- "vox-core",
-]
-
-[[package]]
-name = "vox-core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "vox-keys"
-version = "0.1.0"
-dependencies = [
- "device_query",
- "enigo",
- "vox-core",
-]
-
-[[package]]
-name = "vox-paste"
-version = "0.1.0"
-dependencies = [
- "enigo",
- "vox-core",
-]
-
-[[package]]
-name = "vox-store"
-version = "0.1.0"
-dependencies = [
- "rusqlite",
- "vox-core",
-]
-
-[[package]]
-name = "vox-stt"
-version = "0.1.0"
-dependencies = [
- "vox-core",
- "whisper-rs",
-]
 
 [[package]]
 name = "vswhom"

@@ -1,13 +1,12 @@
 [package]
-name = "vox-keys"
+name = "oratio-store"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-vox-core = { path = "../vox-core" }
-device_query = "4"
-enigo = "0.6"
+oratio-core = { path = "../oratio-core" }
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [lints]
 workspace = true

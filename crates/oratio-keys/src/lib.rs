@@ -4,7 +4,7 @@
 use device_query::{DeviceQuery, DeviceState, Keycode};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{Duration, Instant};
-use vox_core::hotkey::ChordDetector;
+use oratio_core::hotkey::ChordDetector;
 
 const POLL: Duration = Duration::from_millis(8);
 const HOLD_MS: u64 = 80;
@@ -21,7 +21,7 @@ fn is_win(k: &Keycode) -> bool {
 /// pressed and returns whether the app claimed it (when it didn't, e.g. dictation is off,
 /// the keys are left entirely to Windows); `on_failure` runs once if the watcher dies, so the app can say so.
 pub fn spawn(on_chord: impl Fn() -> bool + Send + 'static, on_failure: impl FnOnce(String) + Send + 'static) {
-    let started = std::thread::Builder::new().name("vox-keys".into()).spawn(move || {
+    let started = std::thread::Builder::new().name("oratio-keys".into()).spawn(move || {
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             let keyboard = DeviceState::new();
             let clock = Instant::now();

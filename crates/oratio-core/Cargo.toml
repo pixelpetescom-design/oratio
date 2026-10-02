@@ -1,12 +1,12 @@
 [package]
-name = "vox-audio"
+name = "oratio-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-vox-core = { path = "../vox-core" }
-cpal = "0.15"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
 
 [lints]
 workspace = true

@@ -1,7 +1,7 @@
 //! The shell's single writer. Every input (hotkeys, timers, engine events, UI
 //! buttons) is queued onto one channel and applied in order on one thread, so
 //! there are no races between, say, a double Escape and the cancel timer.
-//! The pure rules live in `vox_core::session`; this file only performs effects.
+//! The pure rules live in `oratio_core::session`; this file only performs effects.
 
 use crate::config::{escape_shortcut, CANCEL_GRACE_MS, CONTINUATION_WINDOW_MS, OVERLAY_LINGER_MS, PASTE_DELAY_MS, TAIL_GRACE_MS};
 use serde::Serialize;
@@ -12,10 +12,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
-use vox_audio::Capture;
-use vox_core::engine::{Command, Engine, Event};
-use vox_core::polish::continuation;
-use vox_core::session::{step, Effect, Input, State};
+use oratio_audio::Capture;
+use oratio_core::engine::{Command, Engine, Event};
+use oratio_core::polish::continuation;
+use oratio_core::session::{step, Effect, Input, State};
 
 pub enum Msg {
     Input(Input),
@@ -102,7 +102,7 @@ pub fn spawn(app: AppHandle, engine: Engine, engine_events: std::sync::mpsc::Rec
         stopped_at: None,
         last_paste: None,
     };
-    let _ = std::thread::Builder::new().name("vox-controller".into()).spawn(move || {
+    let _ = std::thread::Builder::new().name("oratio-controller".into()).spawn(move || {
         for msg in rx {
             match msg {
                 Msg::Input(i) => ctl.apply(i),
@@ -252,9 +252,9 @@ impl Controller {
                 let mut pasted = false;
                 if copied && auto_paste {
                     // Still holding Ctrl+Win would turn the paste into Win+V (clipboard history).
-                    vox_keys::wait_for_chord_release(Duration::from_millis(1500));
+                    oratio_keys::wait_for_chord_release(Duration::from_millis(1500));
                     std::thread::sleep(Duration::from_millis(PASTE_DELAY_MS));
-                    match vox_paste::paste_from_clipboard() {
+                    match oratio_paste::paste_from_clipboard() {
                         Ok(()) => {
                             pasted = true;
                             self.last_paste = Some(Instant::now());

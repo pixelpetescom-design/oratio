@@ -1,36 +1,36 @@
-# Vox architecture
+# Oratio architecture
 
 Local, offline push-to-dictate. Press a hotkey, speak, press it again: polished text is on the clipboard.
 Nothing leaves the machine (the webview CSP allows no network origins and no adapter has a network dependency).
 
-## Dependency rule (enforced by `crates/vox-core/tests/architecture.rs`)
+## Dependency rule (enforced by `crates/oratio-core/tests/architecture.rs`)
 
 ```
             src-tauri  (shell: wiring, hotkeys, clipboard, tray, windows)
            /    |     \        \       \
-    vox-audio vox-stt vox-store vox-paste vox-keys   adapters: one third-party integration each
+    oratio-audio oratio-stt oratio-store oratio-paste oratio-keys   adapters: one third-party integration each
            \    |     /
-            vox-core                  pure: domain, state machine, ports, engine
+            oratio-core                  pure: domain, state machine, ports, engine
 ```
 
-* `vox-core` depends only on `serde` + `thiserror`. No OS, audio, ML, SQL or UI.
-* Adapters depend only on `vox-core` + their one integration, never on each other.
+* `oratio-core` depends only on `serde` + `thiserror`. No OS, audio, ML, SQL or UI.
+* Adapters depend only on `oratio-core` + their one integration, never on each other.
 * The shell is the only place that knows about all of them.
 * Swapping an engine (e.g. NVIDIA Parakeet) = a new adapter implementing `Transcriber`. Nothing else changes.
 
-## Ports (in `vox-core`)
+## Ports (in `oratio-core`)
 
 | Port | Implemented by | Purpose |
 |---|---|---|
-| `Transcriber` | `vox-stt` (whisper.cpp, English) | 16 kHz audio → text |
-| `History` | `vox-store` (SQLite, WAL) | durable recordings + segments |
-| `Lexicon` | `vox-store` | the user's vocabulary and learned corrections |
+| `Transcriber` | `oratio-stt` (whisper.cpp, English) | 16 kHz audio → text |
+| `History` | `oratio-store` (SQLite, WAL) | durable recordings + segments |
+| `Lexicon` | `oratio-store` | the user's vocabulary and learned corrections |
 
-`vox-keys` watches for the Ctrl+Win chord (modifier-only combos can't be OS hotkeys, so it polls key state
-and feeds a pure `ChordDetector` in the core). `vox-paste` presses Ctrl+V in the focused app (clipboard first, so a failed paste never loses text).
-Microphone capture (`vox-audio`) is a plain function: it yields 16 kHz mono chunks to a sink.
+`oratio-keys` watches for the Ctrl+Win chord (modifier-only combos can't be OS hotkeys, so it polls key state
+and feeds a pure `ChordDetector` in the core). `oratio-paste` presses Ctrl+V in the focused app (clipboard first, so a failed paste never loses text).
+Microphone capture (`oratio-audio`) is a plain function: it yields 16 kHz mono chunks to a sink.
 
-## The lifecycle is a pure state machine (`vox_core::session`)
+## The lifecycle is a pure state machine (`oratio_core::session`)
 
 `step(state, input, now, grace) -> (state, Option<Effect>)`. No clock, threads or I/O inside, so every rule is a unit test.
 

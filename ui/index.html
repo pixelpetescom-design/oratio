@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Vox</title>
+  <title>Oratio</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
 <main>
   <header class="top">
-    <div class="brand"><span class="logo"></span>Vox</div>
+    <div class="brand"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1ed6ff"/><stop offset=".55" stop-color="#0a6cf0"/><stop offset="1" stop-color="#9664ff"/></linearGradient></defs><circle cx="12" cy="12" r="8" fill="none" stroke="rgba(120,150,200,.28)" stroke-width="3.2"/><circle cx="12" cy="12" r="8" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-dasharray="40.8 50.3" transform="rotate(-90 12 12)"/><circle cx="4.5" cy="9.3" r="1.9" fill="#fff" stroke="#1478ff" stroke-width="1"/><circle cx="12" cy="12" r="2" fill="#19b4ff"/></svg>Oratio</div>
     <div class="status"><span id="dot" class="dot loading"></span><span id="status">Loading speech model…</span></div>
   </header>
 
@@ -59,7 +59,7 @@
 
   <details id="learned" class="card">
     <summary>Learned words &amp; corrections</summary>
-    <p class="hint">Words you add are given to the speech engine as hints. Edit any transcript above and Vox remembers your corrections.</p>
+    <p class="hint">Words you add are given to the speech engine as hints. Edit any transcript above and Oratio remembers your corrections.</p>
     <form id="wordform"><span class="field-icon">Aa</span><input id="wordinput" placeholder="Add a name or term, e.g. Postiz" autocomplete="off"><button class="btn primary small">Add</button></form>
     <div id="words" class="chips"></div>
     <div id="fixes" class="chips"></div>

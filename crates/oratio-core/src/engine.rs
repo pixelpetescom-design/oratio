@@ -54,7 +54,7 @@ impl Engine {
     pub fn spawn(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, events: Sender<Event>) -> Engine {
         let (tx, rx) = channel();
         let handle = std::thread::Builder::new()
-            .name("vox-engine".into())
+            .name("oratio-engine".into())
             .spawn(move || run(load, history, lexicon, rx, events))
             .ok();
         Engine { tx, handle }
@@ -95,7 +95,7 @@ fn recognise(transcriber: &mut dyn Transcriber, history: &dyn History, take: &mu
         let started = std::time::Instant::now();
         let result = catch_unwind(AssertUnwindSafe(|| transcriber.transcribe(&audio)));
         eprintln!(
-            "[vox] utterance {:.1}s -> {} in {} ms",
+            "[oratio] utterance {:.1}s -> {} in {} ms",
             audio.len() as f32 / SAMPLE_RATE as f32,
             match &result {
                 Ok(Ok(t)) => format!("{:?}", t.trim()),
@@ -175,7 +175,7 @@ fn run(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, rx: R
                     recognise(transcriber.as_mut(), history.as_ref(), &mut t, rest, &emit);
                 }
                 eprintln!(
-                    "[vox] stopped: {} utterance(s) recognised, loudest level {:.4}, background noise {:.4}, short sounds ignored {}",
+                    "[oratio] stopped: {} utterance(s) recognised, loudest level {:.4}, background noise {:.4}, short sounds ignored {}",
                     t.texts.len(),
                     t.max_level,
                     segmenter.noise_floor(),

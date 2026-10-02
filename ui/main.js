@@ -181,7 +181,7 @@ async function renderHistory() {
       toast("Copied to clipboard");
       setTimeout(() => { copy.classList.remove("ok"); copy.replaceChildren(icon("copy")); }, 1400);
     });
-    const edit = iconButton("edit", "Edit — Vox learns from your corrections", () => startEdit(card, e));
+    const edit = iconButton("edit", "Edit — Oratio learns from your corrections", () => startEdit(card, e));
     const del = iconButton("trash", "Delete", async () => {
       card.style.transition = "opacity 0.25s, transform 0.25s";
       card.style.opacity = "0";
@@ -310,7 +310,7 @@ $("autostart").onchange = async () => {
   try {
     const on = await invoke("set_autostart", { enabled: $("autostart").checked });
     $("autostart").checked = on;
-    toast(on ? "Vox will start with Windows" : "Vox won't start with Windows");
+    toast(on ? "Oratio will start with Windows" : "Oratio won't start with Windows");
   } catch (e) {
     $("autostart").checked = !$("autostart").checked;
     toast("Couldn't change start-up setting", "bad");

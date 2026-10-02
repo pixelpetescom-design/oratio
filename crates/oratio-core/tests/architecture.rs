@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::panic)]
 //! Guardrail: enforces the dependency rule from docs/ARCHITECTURE.md.
-//! `vox-core` is pure; each adapter depends only on `vox-core` plus its one
+//! `oratio-core` is pure; each adapter depends only on `oratio-core` plus its one
 //! third-party integration; adapters never depend on each other or on the shell.
 
 use std::collections::BTreeSet;
@@ -32,14 +32,14 @@ fn assert_exactly(crate_dir: &str, allowed: &[&str]) {
 
 #[test]
 fn core_is_pure() {
-    assert_exactly("vox-core", &["serde", "thiserror"]);
+    assert_exactly("oratio-core", &["serde", "thiserror"]);
 }
 
 #[test]
 fn adapters_depend_only_on_core_and_their_integration() {
-    assert_exactly("vox-audio", &["vox-core", "cpal"]);
-    assert_exactly("vox-stt", &["vox-core", "whisper-rs"]);
-    assert_exactly("vox-store", &["vox-core", "rusqlite"]);
-    assert_exactly("vox-paste", &["vox-core", "enigo"]);
-    assert_exactly("vox-keys", &["vox-core", "device_query", "enigo"]);
+    assert_exactly("oratio-audio", &["oratio-core", "cpal"]);
+    assert_exactly("oratio-stt", &["oratio-core", "whisper-rs"]);
+    assert_exactly("oratio-store", &["oratio-core", "rusqlite"]);
+    assert_exactly("oratio-paste", &["oratio-core", "enigo"]);
+    assert_exactly("oratio-keys", &["oratio-core", "device_query", "enigo"]);
 }

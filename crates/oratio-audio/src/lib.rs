@@ -5,8 +5,8 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, SizedSample};
 use std::sync::mpsc::{channel, Sender};
 use std::thread::JoinHandle;
-use vox_core::resample::Resampler;
-use vox_core::CoreError;
+use oratio_core::resample::Resampler;
+use oratio_core::CoreError;
 
 pub struct Capture {
     stop: Option<Sender<()>>,
@@ -24,7 +24,7 @@ impl Capture {
         let (ready_tx, ready_rx) = channel::<Result<(), CoreError>>();
         // cpal streams are not `Send`, so the stream lives and dies on its own thread.
         let handle = std::thread::Builder::new()
-            .name("vox-capture".into())
+            .name("oratio-capture".into())
             .spawn(move || match open(sink) {
                 Ok(stream) => {
                     let _ = ready_tx.send(Ok(()));
@@ -57,7 +57,7 @@ fn open(sink: impl FnMut(Vec<f32>) + Send + 'static) -> Result<cpal::Stream, Cor
     let device = cpal::default_host().default_input_device().ok_or_else(|| CoreError::Audio("no microphone found".into()))?;
     let supported = device.default_input_config().map_err(audio_err)?;
     eprintln!(
-        "[vox] microphone: {} ({} Hz, {} ch, {:?})",
+        "[oratio] microphone: {} ({} Hz, {} ch, {:?})",
         device.name().unwrap_or_else(|_| "unknown".into()),
         supported.sample_rate().0,
         supported.channels(),

@@ -1,4 +1,4 @@
-# Downloads a Whisper model for Vox into ./models.
+# Downloads a Whisper model for Oratio into ./models.
 #   -Model base   English-only, ~60 MB, for the CPU build (default)
 #   -Model large  large-v3-turbo, ~570 MB, for the GPU build
 param([ValidateSet("base", "large")][string]$Model = "base")

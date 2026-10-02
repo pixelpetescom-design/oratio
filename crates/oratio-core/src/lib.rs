@@ -1,4 +1,4 @@
-//! Pure domain logic for Vox. No OS, audio, ML, database or UI dependencies:
+//! Pure domain logic for Oratio. No OS, audio, ML, database or UI dependencies:
 //! adapters implement the ports defined here, and the shell wires them together.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 

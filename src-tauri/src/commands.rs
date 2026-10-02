@@ -9,9 +9,9 @@ use tauri::window::{Color, Effect, EffectsBuilder};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_clipboard_manager::ClipboardExt;
-use vox_core::history::{History, Status};
-use vox_core::lexicon::{learn_from_edit, Fix, Lexicon};
-use vox_core::session::{Input, State as Phase};
+use oratio_core::history::{History, Status};
+use oratio_core::lexicon::{learn_from_edit, Fix, Lexicon};
+use oratio_core::session::{Input, State as Phase};
 
 #[derive(Serialize)]
 pub struct Snapshot {
@@ -134,7 +134,7 @@ pub fn set_glass(app: AppHandle, enabled: bool) -> bool {
     window.set_effects(effects).is_ok() && enabled && cfg!(windows)
 }
 
-/// Whether Vox is set to launch when the user signs in (read from the OS, the source of truth).
+/// Whether Oratio is set to launch when the user signs in (read from the OS, the source of truth).
 #[tauri::command]
 pub fn get_autostart(app: AppHandle) -> bool {
     app.autolaunch().is_enabled().unwrap_or(false)

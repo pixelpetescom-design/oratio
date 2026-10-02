@@ -1,11 +1,11 @@
 [package]
-name = "vox-stt"
+name = "oratio-stt"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-vox-core = { path = "../vox-core" }
+oratio-core = { path = "../oratio-core" }
 whisper-rs = "0.16"
 
 [features]

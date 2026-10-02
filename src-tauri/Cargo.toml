@@ -1,5 +1,5 @@
 [package]
-name = "vox"
+name = "oratio"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,12 +9,12 @@ description = "Local, offline push-to-dictate with instant clipboard text"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-vox-core = { path = "../crates/vox-core" }
-vox-audio = { path = "../crates/vox-audio" }
-vox-stt = { path = "../crates/vox-stt" }
-vox-store = { path = "../crates/vox-store" }
-vox-paste = { path = "../crates/vox-paste" }
-vox-keys = { path = "../crates/vox-keys" }
+oratio-core = { path = "../crates/oratio-core" }
+oratio-audio = { path = "../crates/oratio-audio" }
+oratio-stt = { path = "../crates/oratio-stt" }
+oratio-store = { path = "../crates/oratio-store" }
+oratio-paste = { path = "../crates/oratio-paste" }
+oratio-keys = { path = "../crates/oratio-keys" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
@@ -23,7 +23,7 @@ serde = { version = "1", features = ["derive"] }
 
 [features]
 # GPU-accelerated speech recognition; build with `cargo tauri build --features gpu`.
-gpu = ["vox-stt/vulkan"]
+gpu = ["oratio-stt/vulkan"]
 
 [lints]
 workspace = true

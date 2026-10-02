@@ -1,11 +1,12 @@
 [package]
-name = "vox-paste"
+name = "oratio-keys"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-vox-core = { path = "../vox-core" }
+oratio-core = { path = "../oratio-core" }
+device_query = "4"
 enigo = "0.6"
 
 [lints]

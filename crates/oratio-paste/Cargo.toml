@@ -1,12 +1,12 @@
 [package]
-name = "vox-store"
+name = "oratio-paste"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-vox-core = { path = "../vox-core" }
-rusqlite = { version = "0.32", features = ["bundled"] }
+oratio-core = { path = "../oratio-core" }
+enigo = "0.6"
 
 [lints]
 workspace = true

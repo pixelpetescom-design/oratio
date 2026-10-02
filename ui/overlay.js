@@ -35,4 +35,4 @@ listen("finished", ({ payload }) => {
   if (!payload.text) show("idle", "No speech detected");
   else show("idle", payload.pasted ? "Typed into your app ✓" + took(payload) : payload.copied ? "Copied — ready to paste" + took(payload) : "Done (clipboard unavailable — see history)");
 });
-listen("problem", () => show("idle", "Something went wrong — open Vox"));
+listen("problem", () => show("idle", "Something went wrong — open Oratio"));
