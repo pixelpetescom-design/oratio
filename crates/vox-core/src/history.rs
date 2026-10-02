@@ -40,6 +40,9 @@ pub trait History: Send + Sync {
     fn delete(&self, id: RecordingId) -> Result<(), CoreError>;
     /// Deletes every entry except a recording still in progress; returns how many were removed.
     fn clear(&self) -> Result<usize, CoreError>;
+    fn get(&self, id: RecordingId) -> Result<Option<Entry>, CoreError>;
+    /// Replaces the transcript text (the user corrected it).
+    fn update_text(&self, id: RecordingId, text: &str) -> Result<(), CoreError>;
     fn list(&self, limit: u32) -> Result<Vec<Entry>, CoreError>;
     /// At startup: recordings left `Recording` by a crash become `Failed`, keeping their text.
     fn recover_interrupted(&self) -> Result<usize, CoreError>;

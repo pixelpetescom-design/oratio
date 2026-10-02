@@ -24,6 +24,7 @@ Nothing leaves the machine (the webview CSP allows no network origins and no ada
 |---|---|---|
 | `Transcriber` | `vox-stt` (whisper.cpp, English) | 16 kHz audio → text |
 | `History` | `vox-store` (SQLite, WAL) | durable recordings + segments |
+| `Lexicon` | `vox-store` | the user's vocabulary and learned corrections |
 
 `vox-keys` watches for the Ctrl+Win chord (modifier-only combos can't be OS hotkeys, so it polls key state
 and feeds a pure `ChordDetector` in the core). `vox-paste` presses Ctrl+V in the focused app (clipboard first, so a failed paste never loses text).
@@ -73,6 +74,20 @@ warmed up at startup; the hotkey is ignored (and the UI says so) until it is rea
 whisper.cpp already emits punctuation and casing; an initial prompt biases it toward punctuated prose.
 `polish()` then deterministically removes fillers, fixes "i"→"I", capitalises sentences, normalises
 spacing and terminal punctuation. Heavier grammar rewriting by an LLM is deliberately out of the MVP.
+
+## Australian English
+
+Whisper writes American spellings. The recogniser gets an Australian-English hint prompt, and
+`spelling::to_australian` then rewrites the final text deterministically (colour, organise, centre, mum…).
+Meaning-dependent pairs (licence/license, meter/metre for devices, program) are left alone, the
+user's own vocabulary is exempt, and learned corrections run last so they always win.
+
+## Learning (local, no model training)
+
+* **Vocabulary** → `Transcriber::set_hints`; Whisper receives it as part of its initial prompt.
+* **Corrections** → when the user edits a transcript, `diff_fixes` (pure word-level LCS) derives
+  `from → to` rules, stored in the `Lexicon` and applied to every future result by `apply_fixes`.
+* The engine reads both at the start of each recording, so a new correction applies to the very next dictation.
 
 ## Not in the MVP (known, deliberate)
 

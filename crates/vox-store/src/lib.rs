@@ -1,4 +1,4 @@
-//! SQLite adapter for the `History` port. WAL mode, so a crash mid-recording
+//! SQLite adapter for the `History` and `Lexicon` ports. WAL mode, so a crash mid-recording
 //! leaves every already-written segment intact.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
@@ -6,6 +6,7 @@ use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
 use vox_core::history::{Entry, History, RecordingId, Status};
+use vox_core::lexicon::{Fix, Lexicon};
 use vox_core::CoreError;
 
 /// Append-only list of schema migrations; index + 1 is the `user_version`.
@@ -23,9 +24,21 @@ const MIGRATIONS: &[&str] = &["
         text TEXT NOT NULL,
         PRIMARY KEY (recording_id, idx)
     );
+",
+// Personal vocabulary and learned corrections.
+"
+    CREATE TABLE words (
+        word TEXT PRIMARY KEY COLLATE NOCASE,
+        added_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+    CREATE TABLE fixes (
+        from_text TEXT PRIMARY KEY COLLATE NOCASE,
+        to_text TEXT NOT NULL,
+        added_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
 "];
 
-pub struct SqliteHistory {
+pub struct SqliteStore {
     conn: Mutex<Connection>,
 }
 
@@ -41,7 +54,7 @@ fn parse_status(s: &str) -> Status {
     }
 }
 
-impl SqliteHistory {
+impl SqliteStore {
     pub fn open(path: &Path) -> Result<Self, CoreError> {
         Self::init(Connection::open(path).map_err(err)?)
     }
@@ -64,7 +77,7 @@ impl SqliteHistory {
     }
 }
 
-impl History for SqliteHistory {
+impl History for SqliteStore {
     fn begin(&self, started_at_ms: i64) -> Result<RecordingId, CoreError> {
         let c = self.conn()?;
         c.execute("INSERT INTO recordings (started_at, status) VALUES (?1, 'recording')", params![started_at_ms]).map_err(err)?;
@@ -105,33 +118,19 @@ impl History for SqliteHistory {
         self.conn()?.execute("DELETE FROM recordings WHERE status != 'recording'", []).map_err(err)
     }
 
+    fn get(&self, id: RecordingId) -> Result<Option<Entry>, CoreError> {
+        let c = self.conn()?;
+        Ok(read_entries(&c, "WHERE id = ?1", params![id])?.into_iter().next())
+    }
+
+    fn update_text(&self, id: RecordingId, text: &str) -> Result<(), CoreError> {
+        self.conn()?.execute("UPDATE recordings SET final_text = ?2 WHERE id = ?1", params![id, text]).map_err(err)?;
+        Ok(())
+    }
+
     fn list(&self, limit: u32) -> Result<Vec<Entry>, CoreError> {
         let c = self.conn()?;
-        let mut stmt = c
-            .prepare("SELECT id, started_at, status, final_text, error FROM recordings ORDER BY id DESC LIMIT ?1")
-            .map_err(err)?;
-        let rows = stmt
-            .query_map(params![limit], |r| {
-                Ok(Entry {
-                    id: r.get(0)?,
-                    started_at_ms: r.get(1)?,
-                    status: parse_status(&r.get::<_, String>(2)?),
-                    segments: vec![],
-                    final_text: r.get(3)?,
-                    error: r.get(4)?,
-                })
-            })
-            .map_err(err)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(err)?;
-
-        let mut seg = c.prepare("SELECT text FROM segments WHERE recording_id = ?1 ORDER BY idx").map_err(err)?;
-        rows.into_iter()
-            .map(|mut e| {
-                e.segments = seg.query_map(params![e.id], |r| r.get(0)).map_err(err)?.collect::<Result<_, _>>().map_err(err)?;
-                Ok(e)
-            })
-            .collect()
+        read_entries(&c, "ORDER BY id DESC LIMIT ?1", params![limit])
     }
 
     fn recover_interrupted(&self) -> Result<usize, CoreError> {
@@ -141,13 +140,90 @@ impl History for SqliteHistory {
     }
 }
 
+fn read_entries(c: &Connection, tail: &str, args: impl rusqlite::Params) -> Result<Vec<Entry>, CoreError> {
+    let mut stmt = c
+        .prepare(&format!("SELECT id, started_at, status, final_text, error FROM recordings {tail}"))
+        .map_err(err)?;
+    let rows = stmt
+        .query_map(args, |r| {
+            Ok(Entry {
+                id: r.get(0)?,
+                started_at_ms: r.get(1)?,
+                status: parse_status(&r.get::<_, String>(2)?),
+                segments: vec![],
+                final_text: r.get(3)?,
+                error: r.get(4)?,
+            })
+        })
+        .map_err(err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(err)?;
+
+    let mut seg = c.prepare("SELECT text FROM segments WHERE recording_id = ?1 ORDER BY idx").map_err(err)?;
+    rows.into_iter()
+        .map(|mut e| {
+            e.segments = seg.query_map(params![e.id], |r| r.get(0)).map_err(err)?.collect::<Result<_, _>>().map_err(err)?;
+            Ok(e)
+        })
+        .collect()
+}
+
+impl Lexicon for SqliteStore {
+    fn words(&self) -> Result<Vec<String>, CoreError> {
+        let c = self.conn()?;
+        let mut stmt = c.prepare("SELECT word FROM words ORDER BY added_at DESC, rowid DESC").map_err(err)?;
+        let rows = stmt.query_map([], |r| r.get(0)).map_err(err)?.collect::<Result<_, _>>().map_err(err)?;
+        Ok(rows)
+    }
+
+    fn add_word(&self, word: &str) -> Result<(), CoreError> {
+        let word = word.trim();
+        if word.is_empty() {
+            return Ok(());
+        }
+        // Re-adding bumps it to the front (and takes the new spelling).
+        let c = self.conn()?;
+        c.execute("DELETE FROM words WHERE word = ?1", params![word]).map_err(err)?;
+        c.execute("INSERT INTO words (word) VALUES (?1)", params![word]).map_err(err)?;
+        Ok(())
+    }
+
+    fn remove_word(&self, word: &str) -> Result<(), CoreError> {
+        self.conn()?.execute("DELETE FROM words WHERE word = ?1", params![word]).map_err(err)?;
+        Ok(())
+    }
+
+    fn fixes(&self) -> Result<Vec<Fix>, CoreError> {
+        let c = self.conn()?;
+        let mut stmt = c.prepare("SELECT from_text, to_text FROM fixes ORDER BY added_at DESC, rowid DESC").map_err(err)?;
+        let rows = stmt
+            .query_map([], |r| Ok(Fix { from: r.get(0)?, to: r.get(1)? }))
+            .map_err(err)?
+            .collect::<Result<_, _>>()
+            .map_err(err)?;
+        Ok(rows)
+    }
+
+    fn add_fix(&self, fix: &Fix) -> Result<(), CoreError> {
+        let c = self.conn()?;
+        c.execute("DELETE FROM fixes WHERE from_text = ?1", params![fix.from]).map_err(err)?;
+        c.execute("INSERT INTO fixes (from_text, to_text) VALUES (?1, ?2)", params![fix.from, fix.to]).map_err(err)?;
+        Ok(())
+    }
+
+    fn remove_fix(&self, from: &str) -> Result<(), CoreError> {
+        self.conn()?.execute("DELETE FROM fixes WHERE from_text = ?1", params![from]).map_err(err)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn roundtrip_orders_segments_and_lists_newest_first() {
-        let h = SqliteHistory::open_in_memory().unwrap();
+        let h = SqliteStore::open_in_memory().unwrap();
         let a = h.begin(1).unwrap();
         h.append_segment(a, "one").unwrap();
         h.append_segment(a, "two").unwrap();
@@ -162,7 +238,7 @@ mod tests {
 
     #[test]
     fn unfinished_recording_still_exposes_its_text() {
-        let h = SqliteHistory::open_in_memory().unwrap();
+        let h = SqliteStore::open_in_memory().unwrap();
         let id = h.begin(1).unwrap();
         h.append_segment(id, "saved before the crash").unwrap();
         assert_eq!(h.recover_interrupted().unwrap(), 1);
@@ -173,7 +249,7 @@ mod tests {
 
     #[test]
     fn delete_removes_segments_too() {
-        let h = SqliteHistory::open_in_memory().unwrap();
+        let h = SqliteStore::open_in_memory().unwrap();
         let id = h.begin(1).unwrap();
         h.append_segment(id, "x").unwrap();
         h.delete(id).unwrap();
@@ -184,7 +260,7 @@ mod tests {
 
     #[test]
     fn clear_removes_finished_entries_but_not_the_one_being_recorded() {
-        let h = SqliteHistory::open_in_memory().unwrap();
+        let h = SqliteStore::open_in_memory().unwrap();
         let done = h.begin(1).unwrap();
         h.append_segment(done, "old").unwrap();
         h.complete(done, "Old.").unwrap();
@@ -203,16 +279,64 @@ mod tests {
     }
 
     #[test]
+    fn get_and_update_text() {
+        let h = SqliteStore::open_in_memory().unwrap();
+        let id = h.begin(1).unwrap();
+        h.complete(id, "Old.").unwrap();
+        h.update_text(id, "New.").unwrap();
+        assert_eq!(h.get(id).unwrap().unwrap().text(), "New.");
+        assert!(h.get(999).unwrap().is_none());
+    }
+
+    #[test]
+    fn vocabulary_is_case_insensitive_newest_first_and_removable() {
+        let l = SqliteStore::open_in_memory().unwrap();
+        l.add_word("Postiz").unwrap();
+        l.add_word("Tauri").unwrap();
+        l.add_word("postiz").unwrap(); // same word, new spelling, bumped to front
+        assert_eq!(l.words().unwrap(), vec!["postiz", "Tauri"]);
+        l.remove_word("TAURI").unwrap();
+        assert_eq!(l.words().unwrap(), vec!["postiz"]);
+    }
+
+    #[test]
+    fn fixes_replace_by_source_and_can_be_removed() {
+        let l = SqliteStore::open_in_memory().unwrap();
+        l.add_fix(&Fix { from: "post is".into(), to: "Postiz".into() }).unwrap();
+        l.add_fix(&Fix { from: "post is".into(), to: "PostIz".into() }).unwrap();
+        assert_eq!(l.fixes().unwrap(), vec![Fix { from: "post is".into(), to: "PostIz".into() }]);
+        l.remove_fix("post is").unwrap();
+        assert!(l.fixes().unwrap().is_empty());
+    }
+
+    #[test]
+    fn existing_v1_database_upgrades_without_losing_history() {
+        let dir = std::env::temp_dir().join(format!("vox-store-mig-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("h.db");
+        {
+            // A database as shipped before vocabulary existed: only migration 1 applied.
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(&format!("BEGIN; {} PRAGMA user_version = 1; COMMIT;", MIGRATIONS[0])).unwrap();
+            c.execute("INSERT INTO recordings (started_at, status, final_text) VALUES (1, 'completed', 'kept.')", []).unwrap();
+        }
+        let s = SqliteStore::open(&path).unwrap();
+        assert_eq!(s.list(10).unwrap()[0].text(), "kept.");
+        s.add_word("works").unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn data_survives_reopen_and_migrations_are_idempotent() {
         let dir = std::env::temp_dir().join(format!("vox-store-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("h.db");
         {
-            let h = SqliteHistory::open(&path).unwrap();
+            let h = SqliteStore::open(&path).unwrap();
             let id = h.begin(1).unwrap();
             h.append_segment(id, "persisted").unwrap();
         }
-        let h = SqliteHistory::open(&path).unwrap();
+        let h = SqliteStore::open(&path).unwrap();
         assert_eq!(h.list(10).unwrap()[0].segments, vec!["persisted"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }

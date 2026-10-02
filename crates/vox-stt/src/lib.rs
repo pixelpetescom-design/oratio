@@ -3,17 +3,20 @@
 
 use std::path::Path;
 use vox_core::stt::Transcriber;
+use vox_core::vocab::glossary_prompt;
 use vox_core::CoreError;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState};
 
-/// Biases the decoder toward cased, punctuated prose.
-const PROMPT: &str = "Hello. This is a clear, well-punctuated sentence, with proper capitalization.";
+/// Biases the decoder toward cased, punctuated prose with Australian spellings.
+const PROMPT: &str = "Hello. This is a clear, well-punctuated sentence in Australian English, with proper capitalisation: colour, organise, centre.";
 
 pub struct WhisperTranscriber {
     // Field order matters: the state must drop before the context it was created from.
     state: WhisperState,
     _ctx: WhisperContext,
     threads: i32,
+    /// Style prompt plus the user's vocabulary.
+    prompt: String,
 }
 
 fn stt_err(e: impl std::fmt::Display) -> CoreError {
@@ -27,7 +30,7 @@ impl WhisperTranscriber {
             .map_err(|e| CoreError::Stt(format!("cannot load model {}: {e}", model.display())))?;
         let state = ctx.create_state().map_err(stt_err)?;
         let threads = std::thread::available_parallelism().map(|n| n.get() as i32).unwrap_or(4).clamp(1, 8);
-        let mut me = Self { state, _ctx: ctx, threads };
+        let mut me = Self { state, _ctx: ctx, threads, prompt: PROMPT.to_string() };
         // First inference allocates buffers; pay that cost at startup, not on the first hotkey press.
         me.transcribe(&vec![0.0; 8_000])?;
         Ok(me)
@@ -35,6 +38,11 @@ impl WhisperTranscriber {
 }
 
 impl Transcriber for WhisperTranscriber {
+    fn set_hints(&mut self, words: &[String]) {
+        let glossary = glossary_prompt(words);
+        self.prompt = if glossary.is_empty() { PROMPT.to_string() } else { format!("{PROMPT} {glossary}") };
+    }
+
     fn transcribe(&mut self, audio: &[f32]) -> Result<String, CoreError> {
         let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         p.set_language(Some("en"));
@@ -44,7 +52,7 @@ impl Transcriber for WhisperTranscriber {
         p.set_suppress_blank(true);
         // The segmenter already gated out silence; don't let the model second-guess quiet speech.
         p.set_no_speech_thold(0.9);
-        p.set_initial_prompt(PROMPT);
+        p.set_initial_prompt(&self.prompt);
         p.set_print_special(false);
         p.set_print_progress(false);
         p.set_print_realtime(false);

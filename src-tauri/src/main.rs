@@ -13,9 +13,10 @@ use tauri::{Manager, PhysicalPosition, WindowEvent};
 use tauri_plugin_global_shortcut::ShortcutState;
 use vox_core::engine::Engine;
 use vox_core::history::History;
+use vox_core::lexicon::Lexicon;
 use vox_core::session::Input;
 use vox_core::stt::Transcriber;
-use vox_store::SqliteHistory;
+use vox_store::SqliteStore;
 use vox_stt::WhisperTranscriber;
 
 fn main() {
@@ -29,6 +30,11 @@ fn main() {
             commands::copy_text,
             commands::delete_entry,
             commands::clear_history,
+            commands::list_lexicon,
+            commands::add_word,
+            commands::remove_word,
+            commands::remove_fix,
+            commands::edit_entry,
         ])
         .on_window_event(|window, event| {
             // Closing the main window keeps dictation alive in the tray.
@@ -43,20 +49,23 @@ fn main() {
             // History: durable on disk; an unusable disk degrades to memory instead of failing.
             let mut startup_problems = Vec::new();
             let data_dir = handle.path().app_data_dir().ok();
-            let history: Arc<dyn History> = match data_dir
+            let store: Arc<SqliteStore> = match data_dir
                 .as_ref()
                 .ok_or_else(|| "no data directory".to_string())
                 .and_then(|d| std::fs::create_dir_all(d).map(|_| d.join("history.db")).map_err(|e| e.to_string()))
-                .and_then(|p| SqliteHistory::open(&p).map_err(|e| e.to_string()))
+                .and_then(|p| SqliteStore::open(&p).map_err(|e| e.to_string()))
             {
                 Ok(h) => Arc::new(h),
                 Err(e) => {
                     startup_problems.push(format!("History cannot be saved to disk ({e}); using memory only for this session."));
-                    Arc::new(SqliteHistory::open_in_memory().map_err(|e| e.to_string())?)
+                    Arc::new(SqliteStore::open_in_memory().map_err(|e| e.to_string())?)
                 }
             };
+            let history: Arc<dyn History> = store.clone();
+            let lexicon: Arc<dyn Lexicon> = store;
             let _ = history.recover_interrupted();
             app.manage(history.clone());
+            app.manage(lexicon.clone());
 
             // Engine: loads the model off the UI thread; hotkey is ignored until it is ready.
             let (etx, erx) = channel();
@@ -65,7 +74,7 @@ fn main() {
                 let model = paths::find_model(&candidates)?;
                 Ok(Box::new(WhisperTranscriber::load(&model)?))
             });
-            let engine = Engine::spawn(loader, history, etx);
+            let engine = Engine::spawn(loader, history, lexicon, etx);
             let ctl = controller::spawn(handle.clone(), engine, erx);
             if let Ok(mut p) = ctl.shared.problems.lock() {
                 p.extend(startup_problems);

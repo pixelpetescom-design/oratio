@@ -7,7 +7,10 @@
 //! text is still returned to the caller; recogniser panics become errors.
 
 use crate::history::{History, RecordingId};
+use crate::lexicon::{Fix, Lexicon};
 use crate::polish::polish;
+use crate::vocab::apply_fixes;
+use crate::spelling::to_australian;
 use crate::segmenter::{normalize, rms, Segmenter, SegmenterConfig, SAMPLE_RATE};
 use crate::stt::Transcriber;
 use crate::CoreError;
@@ -48,11 +51,11 @@ pub struct Engine {
 type Loader = Box<dyn FnOnce() -> Result<Box<dyn Transcriber>, CoreError> + Send>;
 
 impl Engine {
-    pub fn spawn(load: Loader, history: Arc<dyn History>, events: Sender<Event>) -> Engine {
+    pub fn spawn(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, events: Sender<Event>) -> Engine {
         let (tx, rx) = channel();
         let handle = std::thread::Builder::new()
             .name("vox-engine".into())
-            .spawn(move || run(load, history, rx, events))
+            .spawn(move || run(load, history, lexicon, rx, events))
             .ok();
         Engine { tx, handle }
     }
@@ -81,23 +84,13 @@ struct Take {
     last_error: Option<String>,
     /// Loudest chunk heard, for diagnosing "it heard nothing" reports.
     max_level: f32,
+    /// The user's learned corrections, read when the recording began.
+    fixes: Vec<Fix>,
+    /// The user's own words: exempt from spelling rewrites.
+    words: Vec<String>,
 }
 
-fn run(load: Loader, history: Arc<dyn History>, rx: Receiver<Command>, events: Sender<Event>) {
-    let emit = |e: Event| {
-        let _ = events.send(e);
-    };
-    let mut transcriber = match catch_unwind(AssertUnwindSafe(load)) {
-        Ok(Ok(t)) => t,
-        Ok(Err(e)) => return emit(Event::LoadFailed(e.to_string())),
-        Err(_) => return emit(Event::LoadFailed("model loader crashed".into())),
-    };
-    emit(Event::Ready);
-
-    let mut segmenter = Segmenter::new(SegmenterConfig::default());
-    let mut take: Option<Take> = None;
-
-    let mut recognise = |take: &mut Take, mut audio: Vec<f32>, segmenter_events: &dyn Fn(Event)| {
+fn recognise(transcriber: &mut dyn Transcriber, history: &dyn History, take: &mut Take, mut audio: Vec<f32>, segmenter_events: &dyn Fn(Event)) {
         normalize(&mut audio);
         let started = std::time::Instant::now();
         let result = catch_unwind(AssertUnwindSafe(|| transcriber.transcribe(&audio)));
@@ -126,7 +119,21 @@ fn run(load: Loader, history: Arc<dyn History>, rx: Receiver<Command>, events: S
             Ok(Err(e)) => take.last_error = Some(e.to_string()),
             Err(_) => take.last_error = Some("recogniser crashed".into()),
         }
+    }
+
+fn run(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, rx: Receiver<Command>, events: Sender<Event>) {
+    let emit = |e: Event| {
+        let _ = events.send(e);
     };
+    let mut transcriber = match catch_unwind(AssertUnwindSafe(load)) {
+        Ok(Ok(t)) => t,
+        Ok(Err(e)) => return emit(Event::LoadFailed(e.to_string())),
+        Err(_) => return emit(Event::LoadFailed("model loader crashed".into())),
+    };
+    emit(Event::Ready);
+
+    let mut segmenter = Segmenter::new(SegmenterConfig::default());
+    let mut take: Option<Take> = None;
 
     while let Ok(cmd) = rx.recv() {
         match cmd {
@@ -135,8 +142,18 @@ fn run(load: Loader, history: Arc<dyn History>, rx: Receiver<Command>, events: S
                 if let Some(old) = take.take() {
                     let _ = history.fail(old.id, "superseded by a new recording");
                 }
+                // Read what the user has taught us fresh each time, so edits apply immediately.
+                let words = lexicon.words().unwrap_or_else(|e| {
+                    emit(Event::Warning(e.to_string()));
+                    vec![]
+                });
+                let fixes = lexicon.fixes().unwrap_or_else(|e| {
+                    emit(Event::Warning(e.to_string()));
+                    vec![]
+                });
+                transcriber.set_hints(&words);
                 match history.begin(started_at_ms) {
-                    Ok(id) => take = Some(Take { id, texts: vec![], last_error: None, max_level: 0.0 }),
+                    Ok(id) => take = Some(Take { id, texts: vec![], last_error: None, max_level: 0.0, fixes, words: words.clone() }),
                     Err(e) => emit(Event::Failed { reason: e.to_string() }),
                 }
             }
@@ -146,7 +163,7 @@ fn run(load: Loader, history: Arc<dyn History>, rx: Receiver<Command>, events: S
                 t.max_level = t.max_level.max(level);
                 emit(Event::Level(level));
                 for utterance in segmenter.push(&chunk) {
-                    recognise(t, utterance, &emit);
+                    recognise(transcriber.as_mut(), history.as_ref(), t, utterance, &emit);
                 }
             }
             Command::Finish => {
@@ -155,7 +172,7 @@ fn run(load: Loader, history: Arc<dyn History>, rx: Receiver<Command>, events: S
                     continue;
                 };
                 if let Some(rest) = segmenter.flush() {
-                    recognise(&mut t, rest, &emit);
+                    recognise(transcriber.as_mut(), history.as_ref(), &mut t, rest, &emit);
                 }
                 eprintln!(
                     "[vox] stopped: {} utterance(s) recognised, loudest level {:.4}, background noise {:.4}, short sounds ignored {}",
@@ -172,7 +189,8 @@ fn run(load: Loader, history: Arc<dyn History>, rx: Receiver<Command>, events: S
                     }
                     continue;
                 }
-                let text = polish(&t.texts);
+                // Spelling first, so the user's own corrections always have the final word.
+                let text = apply_fixes(&to_australian(&polish(&t.texts), &t.words), &t.fixes);
                 if let Err(e) = history.complete(t.id, &text) {
                     emit(Event::Warning(e.to_string()));
                 }
@@ -197,62 +215,17 @@ fn run(load: Loader, history: Arc<dyn History>, rx: Receiver<Command>, events: S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::history::{Entry, Status};
+    use crate::history::Status;
+    use crate::testing::{MemHistory, MemLexicon};
     use std::sync::Mutex;
     use std::time::Duration;
 
-    #[derive(Default)]
-    struct MemHistory {
-        rows: Mutex<Vec<Entry>>,
-        fail_writes: bool,
-    }
-    impl History for MemHistory {
-        fn begin(&self, started_at_ms: i64) -> Result<RecordingId, CoreError> {
-            let mut r = self.rows.lock().unwrap();
-            let id = r.len() as i64 + 1;
-            r.push(Entry { id, started_at_ms, status: Status::Recording, segments: vec![], final_text: None, error: None });
-            Ok(id)
-        }
-        fn append_segment(&self, id: RecordingId, text: &str) -> Result<(), CoreError> {
-            if self.fail_writes {
-                return Err(CoreError::History("disk full".into()));
-            }
-            self.rows.lock().unwrap().iter_mut().find(|e| e.id == id).unwrap().segments.push(text.into());
-            Ok(())
-        }
-        fn complete(&self, id: RecordingId, t: &str) -> Result<(), CoreError> {
-            if self.fail_writes {
-                return Err(CoreError::History("disk full".into()));
-            }
-            let mut r = self.rows.lock().unwrap();
-            let e = r.iter_mut().find(|e| e.id == id).unwrap();
-            e.status = Status::Completed;
-            e.final_text = Some(t.into());
-            Ok(())
-        }
-        fn fail(&self, _: RecordingId, _: &str) -> Result<(), CoreError> {
-            Ok(())
-        }
-        fn delete(&self, id: RecordingId) -> Result<(), CoreError> {
-            self.rows.lock().unwrap().retain(|e| e.id != id);
-            Ok(())
-        }
-        fn clear(&self) -> Result<usize, CoreError> {
-            let mut r = self.rows.lock().unwrap();
-            let before = r.len();
-            r.retain(|e| e.status == Status::Recording);
-            Ok(before - r.len())
-        }
-        fn list(&self, _: u32) -> Result<Vec<Entry>, CoreError> {
-            Ok(self.rows.lock().unwrap().clone())
-        }
-        fn recover_interrupted(&self) -> Result<usize, CoreError> {
-            Ok(0)
-        }
-    }
-
-    struct Fake(Vec<Result<&'static str, &'static str>>);
+    struct Fake(Vec<Result<&'static str, &'static str>>, Arc<Mutex<Vec<String>>>);
     impl Transcriber for Fake {
+        fn set_hints(&mut self, words: &[String]) {
+            *self.1.lock().unwrap() = words.to_vec();
+        }
+
         fn transcribe(&mut self, _: &[f32]) -> Result<String, CoreError> {
             match self.0.remove(0) {
                 Ok(t) => Ok(t.into()),
@@ -266,10 +239,28 @@ mod tests {
     }
 
     fn start(script: Vec<Result<&'static str, &'static str>>, hist: Arc<MemHistory>) -> (Engine, Receiver<Event>) {
+        let (eng, rx, _, _) = start_with_lexicon(script, hist, Arc::new(MemLexicon::default()));
+        (eng, rx)
+    }
+
+    type Hints = Arc<Mutex<Vec<String>>>;
+
+    fn start_with_lexicon(
+        script: Vec<Result<&'static str, &'static str>>,
+        hist: Arc<MemHistory>,
+        lexicon: Arc<MemLexicon>,
+    ) -> (Engine, Receiver<Event>, Hints, Arc<MemLexicon>) {
         let (etx, erx) = channel();
-        let eng = Engine::spawn(Box::new(move || Ok(Box::new(Fake(script)) as Box<dyn Transcriber>)), hist, etx);
+        let hints = Hints::default();
+        let h = hints.clone();
+        let eng = Engine::spawn(
+            Box::new(move || Ok(Box::new(Fake(script, h)) as Box<dyn Transcriber>)),
+            hist,
+            lexicon.clone(),
+            etx,
+        );
         assert_eq!(erx.recv_timeout(Duration::from_secs(2)).unwrap(), Event::Ready);
-        (eng, erx)
+        (eng, erx, hints, lexicon)
     }
 
     fn until_finished(rx: &Receiver<Event>) -> (Vec<Event>, Event) {
@@ -346,7 +337,29 @@ mod tests {
     #[test]
     fn load_failure_is_reported_not_panicked() {
         let (etx, erx) = channel();
-        let _eng = Engine::spawn(Box::new(|| Err(CoreError::Stt("no model".into()))), Arc::new(MemHistory::default()), etx);
+        let _eng = Engine::spawn(Box::new(|| Err(CoreError::Stt("no model".into()))), Arc::new(MemHistory::default()), Arc::new(MemLexicon::default()), etx);
         assert!(matches!(erx.recv_timeout(Duration::from_secs(2)).unwrap(), Event::LoadFailed(m) if m.contains("no model")));
+    }
+
+    #[test]
+    fn learned_words_become_hints_and_learned_fixes_correct_the_result() {
+        let lexicon = Arc::new(MemLexicon::default());
+        lexicon.add_word("Postiz").unwrap();
+        lexicon.add_fix(&Fix { from: "post is".into(), to: "Postiz".into() }).unwrap();
+        let (eng, rx, hints, _) = start_with_lexicon(vec![Ok("open post is now")], Arc::new(MemHistory::default()), lexicon);
+        eng.send(Command::Begin { started_at_ms: 1 });
+        eng.send(Command::Audio(tone(500)));
+        eng.send(Command::Finish);
+        assert_eq!(until_finished(&rx).1, Event::Finished { id: Some(1), text: "Open Postiz now.".into() });
+        assert_eq!(*hints.lock().unwrap(), vec!["Postiz".to_string()]);
+    }
+
+    #[test]
+    fn output_uses_australian_spelling() {
+        let (eng, rx) = start(vec![Ok("i like the color of the center")], Arc::new(MemHistory::default()));
+        eng.send(Command::Begin { started_at_ms: 1 });
+        eng.send(Command::Audio(tone(500)));
+        eng.send(Command::Finish);
+        assert_eq!(until_finished(&rx).1, Event::Finished { id: Some(1), text: "I like the colour of the centre.".into() });
     }
 }

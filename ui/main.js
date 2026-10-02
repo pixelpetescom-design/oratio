@@ -57,10 +57,13 @@ async function renderHistory() {
     const copy = document.createElement("button");
     copy.textContent = "Copy";
     copy.onclick = async () => { await invoke("copy_text", { text: e.text }); copy.textContent = "Copied ✓"; setTimeout(() => (copy.textContent = "Copy"), 1200); };
+    const edit = document.createElement("button");
+    edit.textContent = "Edit";
+    edit.onclick = () => startEdit(card, e);
     const del = document.createElement("button");
     del.textContent = "Delete";
     del.onclick = async () => { await invoke("delete_entry", { id: e.id }); renderHistory(); };
-    meta.append(when, copy, del);
+    meta.append(when, copy, edit, del);
     const text = document.createElement("div");
     text.className = "text";
     text.textContent = e.text || "(no text)";
@@ -68,6 +71,58 @@ async function renderHistory() {
     list.append(card);
   }
 }
+
+function startEdit(card, entry) {
+  const box = document.createElement("textarea");
+  box.value = entry.text;
+  const save = document.createElement("button");
+  save.textContent = "Save & learn";
+  const cancel = document.createElement("button");
+  cancel.textContent = "Cancel";
+  const row = document.createElement("div");
+  row.className = "meta";
+  row.append(save, cancel);
+  card.querySelector(".text").replaceWith(box);
+  card.append(row);
+  box.focus();
+  cancel.onclick = () => renderHistory();
+  save.onclick = async () => {
+    try {
+      const learned = await invoke("edit_entry", { id: entry.id, text: box.value });
+      $("live").textContent = learned ? `Saved. Learned ${learned} correction${learned === 1 ? "" : "s"}.` : "Saved.";
+    } catch (err) { renderProblems([String(err)]); }
+    renderHistory();
+    renderLexicon();
+  };
+}
+
+function chip(label, onRemove) {
+  const c = document.createElement("span");
+  c.className = "chip";
+  c.append(label);
+  const x = document.createElement("button");
+  x.textContent = "×";
+  x.title = "Remove";
+  x.onclick = onRemove;
+  c.append(x);
+  return c;
+}
+
+async function renderLexicon() {
+  let lex;
+  try { lex = await invoke("list_lexicon"); } catch (e) { renderProblems([String(e)]); return; }
+  $("words").replaceChildren(...lex.words.map((w) => chip(w, async () => { await invoke("remove_word", { word: w }); renderLexicon(); })));
+  $("fixes").replaceChildren(...lex.fixes.map((f) => chip(`${f.from} → ${f.to}`, async () => { await invoke("remove_fix", { from: f.from }); renderLexicon(); })));
+}
+
+$("wordform").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const word = $("wordinput").value.trim();
+  if (!word) return;
+  $("wordinput").value = "";
+  try { await invoke("add_word", { word }); } catch (e) { renderProblems([String(e)]); }
+  renderLexicon();
+};
 
 $("toggle").onclick = () => invoke("toggle_recording");
 
@@ -125,4 +180,5 @@ listen("history", renderHistory);
   renderState(s.state.kind, null);
   renderProblems(s.problems);
   renderHistory();
+  renderLexicon();
 })();

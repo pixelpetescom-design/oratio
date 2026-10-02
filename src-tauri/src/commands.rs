@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use vox_core::history::{History, Status};
+use vox_core::lexicon::{learn_from_edit, Fix, Lexicon};
 use vox_core::session::{Input, State as Phase};
 
 #[derive(Serialize)]
@@ -72,4 +73,41 @@ pub fn delete_entry(history: State<'_, Arc<dyn History>>, id: i64) -> Result<(),
 #[tauri::command]
 pub fn clear_history(history: State<'_, Arc<dyn History>>) -> Result<usize, String> {
     history.clear().map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+pub struct LexiconView {
+    words: Vec<String>,
+    fixes: Vec<Fix>,
+}
+
+#[tauri::command]
+pub fn list_lexicon(lexicon: State<'_, Arc<dyn Lexicon>>) -> Result<LexiconView, String> {
+    Ok(LexiconView { words: lexicon.words().map_err(|e| e.to_string())?, fixes: lexicon.fixes().map_err(|e| e.to_string())? })
+}
+
+#[tauri::command]
+pub fn add_word(lexicon: State<'_, Arc<dyn Lexicon>>, word: String) -> Result<(), String> {
+    lexicon.add_word(&word).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_word(lexicon: State<'_, Arc<dyn Lexicon>>, word: String) -> Result<(), String> {
+    lexicon.remove_word(&word).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_fix(lexicon: State<'_, Arc<dyn Lexicon>>, from: String) -> Result<(), String> {
+    lexicon.remove_fix(&from).map_err(|e| e.to_string())
+}
+
+/// Saves a corrected transcript and learns from it; returns how many corrections were learned.
+#[tauri::command]
+pub fn edit_entry(
+    history: State<'_, Arc<dyn History>>,
+    lexicon: State<'_, Arc<dyn Lexicon>>,
+    id: i64,
+    text: String,
+) -> Result<usize, String> {
+    learn_from_edit(history.as_ref(), lexicon.as_ref(), id, &text).map_err(|e| e.to_string())
 }
