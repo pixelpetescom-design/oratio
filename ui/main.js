@@ -70,6 +70,15 @@ async function renderHistory() {
 
 $("toggle").onclick = () => invoke("toggle_recording");
 
+// The preference lives in the UI's storage and is pushed to the backend on load and on change.
+const stored = localStorage.getItem("autopaste");
+$("autopaste").checked = stored === null ? true : stored === "true";
+invoke("set_auto_paste", { enabled: $("autopaste").checked });
+$("autopaste").onchange = () => {
+  localStorage.setItem("autopaste", String($("autopaste").checked));
+  invoke("set_auto_paste", { enabled: $("autopaste").checked });
+};
+
 let countdown = null;
 listen("state", ({ payload }) => {
   clearInterval(countdown);
@@ -82,7 +91,7 @@ listen("state", ({ payload }) => {
 });
 listen("segment", ({ payload }) => { liveText += (liveText ? " " : "") + payload; $("live").textContent = liveText; });
 listen("finished", ({ payload }) => {
-  $("live").textContent = payload.text ? (payload.copied ? "Copied to clipboard: " : "") + payload.text : "No speech detected.";
+  $("live").textContent = payload.text ? (payload.pasted ? "Typed: " : payload.copied ? "Copied to clipboard: " : "") + payload.text : "No speech detected.";
   liveText = "";
 });
 listen("problem", ({ payload }) => invoke("get_snapshot").then((s) => renderProblems(s.problems)));

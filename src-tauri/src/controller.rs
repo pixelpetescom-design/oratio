@@ -3,9 +3,10 @@
 //! there are no races between, say, a double Escape and the cancel timer.
 //! The pure rules live in `vox_core::session`; this file only performs effects.
 
-use crate::config::{escape_shortcut, CANCEL_GRACE_MS, OVERLAY_LINGER_MS, TAIL_GRACE_MS};
+use crate::config::{escape_shortcut, CANCEL_GRACE_MS, OVERLAY_LINGER_MS, PASTE_DELAY_MS, TAIL_GRACE_MS};
 use serde::Serialize;
 use std::sync::mpsc::{channel, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
@@ -24,6 +25,8 @@ pub enum Msg {
 pub struct Shared {
     pub state: Mutex<State>,
     pub problems: Mutex<Vec<String>>,
+    /// Press Ctrl+V in the focused app after copying the result.
+    pub auto_paste: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -49,6 +52,7 @@ struct StatePayload {
 struct Finished {
     text: String,
     copied: bool,
+    pasted: bool,
 }
 
 struct Controller {
@@ -67,7 +71,7 @@ struct Controller {
 /// channel the engine was spawned with.
 pub fn spawn(app: AppHandle, engine: Engine, engine_events: std::sync::mpsc::Receiver<Event>) -> Handle {
     let (tx, rx) = channel::<Msg>();
-    let shared = Arc::new(Shared { state: Mutex::new(State::Loading), problems: Mutex::new(vec![]) });
+    let shared = Arc::new(Shared { state: Mutex::new(State::Loading), problems: Mutex::new(vec![]), auto_paste: AtomicBool::new(true) });
 
     let forward = tx.clone();
     std::thread::spawn(move || {
@@ -229,7 +233,15 @@ impl Controller {
                 if !text.is_empty() && !copied {
                     self.problem("Could not write to the clipboard; the text is saved in history.".into());
                 }
-                let _ = self.app.emit("finished", Finished { text, copied });
+                let mut pasted = false;
+                if copied && self.shared.auto_paste.load(Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(PASTE_DELAY_MS));
+                    match vox_paste::paste_from_clipboard() {
+                        Ok(()) => pasted = true,
+                        Err(e) => self.problem(format!("Could not type into the active app ({e}). The text is on your clipboard.")),
+                    }
+                }
+                let _ = self.app.emit("finished", Finished { text, copied, pasted });
                 let _ = self.app.emit("history", ());
                 self.apply(Input::Finished);
                 self.hide_overlay_later();

@@ -33,7 +33,7 @@ listen("level", ({ payload }) => {
 
 listen("finished", ({ payload }) => {
   if (!payload.text) show("idle", "No speech detected");
-  else show("idle", payload.copied ? "Copied — ready to paste" : "Done (clipboard unavailable — see history)");
+  else show("idle", payload.pasted ? "Typed into your app ✓" : payload.copied ? "Copied — ready to paste" : "Done (clipboard unavailable — see history)");
   $("bar").style.width = "0";
 });
 listen("problem", () => show("unavailable", "Something went wrong — open Vox"));

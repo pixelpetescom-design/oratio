@@ -40,4 +40,5 @@ fn adapters_depend_only_on_core_and_their_integration() {
     assert_exactly("vox-audio", &["vox-core", "cpal"]);
     assert_exactly("vox-stt", &["vox-core", "whisper-rs"]);
     assert_exactly("vox-store", &["vox-core", "rusqlite"]);
+    assert_exactly("vox-paste", &["vox-core", "enigo"]);
 }

@@ -1,7 +1,7 @@
 # Vox
 
 Local, offline push-to-dictate for Windows. **Ctrl+Shift+Space** to start, again to stop: polished English text
-is on your clipboard, ready to paste. No account, no network, no limits. MIT.
+is on your clipboard and typed into whatever app you're in (toggle in the window; the clipboard copy always happens). No account, no network, no limits. MIT.
 
 * While recording, **Esc** starts a 3-second cancel countdown; **Esc** again resumes; letting it expire discards the recording.
 * Every transcription is saved locally (SQLite) so you can copy it later, even after a crash.

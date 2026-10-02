@@ -13,6 +13,7 @@ vox-core = { path = "../crates/vox-core" }
 vox-audio = { path = "../crates/vox-audio" }
 vox-stt = { path = "../crates/vox-stt" }
 vox-store = { path = "../crates/vox-store" }
+vox-paste = { path = "../crates/vox-paste" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"

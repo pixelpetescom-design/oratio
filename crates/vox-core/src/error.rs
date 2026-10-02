@@ -6,4 +6,6 @@ pub enum CoreError {
     History(String),
     #[error("audio: {0}")]
     Audio(String),
+    #[error("keyboard: {0}")]
+    Input(String),
 }

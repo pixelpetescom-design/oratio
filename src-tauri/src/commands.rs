@@ -3,6 +3,7 @@
 use crate::config::{HISTORY_LIMIT, TOGGLE_LABEL};
 use crate::controller::Handle;
 use serde::Serialize;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -14,6 +15,7 @@ pub struct Snapshot {
     state: Phase,
     hotkey: &'static str,
     problems: Vec<String>,
+    auto_paste: bool,
 }
 
 #[derive(Serialize)]
@@ -31,7 +33,13 @@ pub fn get_snapshot(ctl: State<'_, Handle>) -> Snapshot {
         state: ctl.shared.state.lock().map(|s| *s).unwrap_or(Phase::Unavailable),
         hotkey: TOGGLE_LABEL,
         problems: ctl.shared.problems.lock().map(|p| p.clone()).unwrap_or_default(),
+        auto_paste: ctl.shared.auto_paste.load(Ordering::Relaxed),
     }
+}
+
+#[tauri::command]
+pub fn set_auto_paste(ctl: State<'_, Handle>, enabled: bool) {
+    ctl.shared.auto_paste.store(enabled, Ordering::Relaxed);
 }
 
 #[tauri::command]

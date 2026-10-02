@@ -24,6 +24,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_snapshot,
             commands::toggle_recording,
+            commands::set_auto_paste,
             commands::list_history,
             commands::copy_text,
             commands::delete_entry,

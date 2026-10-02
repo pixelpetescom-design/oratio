@@ -14,6 +14,9 @@ pub const OVERLAY_LINGER_MS: u64 = 1_400;
 /// Keep the microphone open this long after Stop so the last word isn't clipped.
 pub const TAIL_GRACE_MS: u64 = 200;
 
+/// Lets the clipboard settle before the paste keystroke is sent.
+pub const PASTE_DELAY_MS: u64 = 50;
+
 pub const HISTORY_LIMIT: u32 = 500;
 pub const MODEL_FILE: &str = "ggml-base.en-q5_1.bin";
 
