@@ -11,6 +11,9 @@ pub const CANCEL_GRACE_MS: u64 = 3_000;
 /// How long the overlay lingers after a result so the user sees the confirmation.
 pub const OVERLAY_LINGER_MS: u64 = 1_400;
 
+/// Keep the microphone open this long after Stop so the last word isn't clipped.
+pub const TAIL_GRACE_MS: u64 = 200;
+
 pub const HISTORY_LIMIT: u32 = 500;
 pub const MODEL_FILE: &str = "ggml-base.en-q5_1.bin";
 

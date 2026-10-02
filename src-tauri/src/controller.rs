@@ -3,7 +3,7 @@
 //! there are no races between, say, a double Escape and the cancel timer.
 //! The pure rules live in `vox_core::session`; this file only performs effects.
 
-use crate::config::{escape_shortcut, CANCEL_GRACE_MS, OVERLAY_LINGER_MS};
+use crate::config::{escape_shortcut, CANCEL_GRACE_MS, OVERLAY_LINGER_MS, TAIL_GRACE_MS};
 use serde::Serialize;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
@@ -137,6 +137,7 @@ impl Controller {
             // Dropping the capture stops the mic and joins its thread, so every
             // chunk is already queued ahead of `Finish`.
             Effect::Finish => {
+                std::thread::sleep(Duration::from_millis(TAIL_GRACE_MS));
                 self.capture = None;
                 self.engine.send(Command::Finish);
             }

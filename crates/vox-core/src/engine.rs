@@ -158,10 +158,11 @@ fn run(load: Loader, history: Arc<dyn History>, rx: Receiver<Command>, events: S
                     recognise(&mut t, rest, &emit);
                 }
                 eprintln!(
-                    "[vox] stopped: {} utterance(s) recognised, loudest level {:.4}, background noise {:.4}",
+                    "[vox] stopped: {} utterance(s) recognised, loudest level {:.4}, background noise {:.4}, short sounds ignored {}",
                     t.texts.len(),
                     t.max_level,
-                    segmenter.noise_floor()
+                    segmenter.noise_floor(),
+                    segmenter.dropped()
                 );
                 if t.texts.is_empty() {
                     let _ = history.delete(t.id);

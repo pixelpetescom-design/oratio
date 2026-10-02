@@ -42,6 +42,8 @@ impl Transcriber for WhisperTranscriber {
         p.set_n_threads(self.threads);
         p.set_no_context(true);
         p.set_suppress_blank(true);
+        // The segmenter already gated out silence; don't let the model second-guess quiet speech.
+        p.set_no_speech_thold(0.9);
         p.set_initial_prompt(PROMPT);
         p.set_print_special(false);
         p.set_print_progress(false);

@@ -39,6 +39,9 @@ pub struct SegmenterConfig {
     pub max_samples: usize,
     pub min_threshold: f32,
     pub noise_multiplier: f32,
+    /// Once speaking, only dropping below this fraction of the start threshold counts as
+    /// silence, so soft word endings don't cut an utterance short.
+    pub hysteresis: f32,
 }
 
 impl Default for SegmenterConfig {
@@ -47,11 +50,12 @@ impl Default for SegmenterConfig {
             frame_samples: SAMPLE_RATE * 30 / 1000,
             pre_roll_frames: 10,
             end_silence_frames: 18,
-            min_speech_frames: 8,
+            min_speech_frames: 5,
             min_flush_frames: 3,
             max_samples: SAMPLE_RATE * 25,
             min_threshold: 0.0015,
             noise_multiplier: 3.0,
+            hysteresis: 0.5,
         }
     }
 }
@@ -65,6 +69,7 @@ pub struct Segmenter {
     speech_frames: usize,
     silence_frames: usize,
     noise_floor: f32,
+    dropped: usize,
 }
 
 impl Segmenter {
@@ -78,6 +83,7 @@ impl Segmenter {
             speech_frames: 0,
             silence_frames: 0,
             noise_floor: 0.001,
+            dropped: 0,
         }
     }
 
@@ -98,6 +104,11 @@ impl Segmenter {
         self.noise_floor
     }
 
+    /// Short sounds discarded as noise since creation (diagnostics).
+    pub fn dropped(&self) -> usize {
+        self.dropped
+    }
+
     /// Close out whatever is in flight (the user pressed stop).
     pub fn flush(&mut self) -> Option<Vec<f32>> {
         if self.speaking {
@@ -114,12 +125,11 @@ impl Segmenter {
 
     fn frame(&mut self, frame: Vec<f32>) -> Option<Vec<f32>> {
         let level = rms(&frame);
-        let is_speech = level > (self.noise_floor * self.cfg.noise_multiplier).max(self.cfg.min_threshold);
-        if !is_speech {
-            self.noise_floor = self.noise_floor * 0.95 + level * 0.05;
-        }
+        let start_threshold = (self.noise_floor * self.cfg.noise_multiplier).max(self.cfg.min_threshold);
 
         if self.speaking {
+            // Already in an utterance: a lower bar keeps soft words and trailing syllables.
+            let is_speech = level > start_threshold * self.cfg.hysteresis;
             self.current.extend_from_slice(&frame);
             if is_speech {
                 self.speech_frames += 1;
@@ -129,11 +139,14 @@ impl Segmenter {
             }
             if self.silence_frames >= self.cfg.end_silence_frames || self.current.len() >= self.cfg.max_samples {
                 let keep = self.speech_frames >= self.cfg.min_speech_frames;
+                if !keep {
+                    self.dropped += 1;
+                }
                 let out = keep.then(|| std::mem::take(&mut self.current));
                 self.reset_utterance();
                 return out;
             }
-        } else if is_speech {
+        } else if level > start_threshold {
             self.speaking = true;
             self.speech_frames = 1;
             for f in self.pre.drain(..) {
@@ -141,6 +154,10 @@ impl Segmenter {
             }
             self.current.extend_from_slice(&frame);
         } else {
+            // Learn the background level only while idle: rises slowly (never chases speech),
+            // falls quickly.
+            let rate = if level > self.noise_floor { 0.01 } else { 0.1 };
+            self.noise_floor += (level - self.noise_floor) * rate;
             self.pre.push_back(frame);
             if self.pre.len() > self.cfg.pre_roll_frames {
                 self.pre.pop_front();
@@ -190,6 +207,23 @@ mod tests {
         let mut s = Segmenter::new(SegmenterConfig::default());
         let out = feed(&mut s, &[silence(500), quiet, silence(900)]);
         assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn soft_word_endings_do_not_split_the_utterance() {
+        // rms ~0.001: below the start threshold but above the continue threshold.
+        let soft: Vec<f32> = tone(700).iter().map(|s| s * 0.0047).collect();
+        let mut s = Segmenter::new(SegmenterConfig::default());
+        let out = feed(&mut s, &[silence(500), tone(500), soft, tone(500), silence(900)]);
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn noise_floor_does_not_creep_up_during_speech() {
+        let soft: Vec<f32> = tone(2000).iter().map(|s| s * 0.0047).collect();
+        let mut s = Segmenter::new(SegmenterConfig::default());
+        feed(&mut s, &[silence(500), tone(500), soft, silence(900)]);
+        assert!(s.noise_floor() < 0.002, "floor was {}", s.noise_floor());
     }
 
     #[test]
