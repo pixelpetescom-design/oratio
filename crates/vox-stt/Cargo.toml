@@ -8,5 +8,10 @@ license.workspace = true
 vox-core = { path = "../vox-core" }
 whisper-rs = "0.16"
 
+[features]
+# Run the speech model on the graphics card (Vulkan: NVIDIA, AMD and Intel). Falls back to the CPU
+# at runtime if no usable GPU is found.
+vulkan = ["whisper-rs/vulkan"]
+
 [lints]
 workspace = true

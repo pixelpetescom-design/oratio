@@ -31,9 +31,13 @@ listen("level", ({ payload }) => {
   $("bar").style.width = `${Math.round(level * 100)}%`;
 });
 
+function took(p) {
+  return p.elapsed_ms != null ? ` · ${(p.elapsed_ms / 1000).toFixed(1)} s` : "";
+}
+
 listen("finished", ({ payload }) => {
   if (!payload.text) show("idle", "No speech detected");
-  else show("idle", payload.pasted ? "Typed into your app ✓" : payload.copied ? "Copied — ready to paste" : "Done (clipboard unavailable — see history)");
+  else show("idle", payload.pasted ? "Typed into your app ✓" + took(payload) : payload.copied ? "Copied — ready to paste" + took(payload) : "Done (clipboard unavailable — see history)");
   $("bar").style.width = "0";
 });
 listen("problem", () => show("unavailable", "Something went wrong — open Vox"));

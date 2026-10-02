@@ -53,6 +53,8 @@ struct Finished {
     text: String,
     copied: bool,
     pasted: bool,
+    /// From pressing Stop until the text was ready (before pasting).
+    elapsed_ms: Option<u64>,
 }
 
 struct Controller {
@@ -65,6 +67,8 @@ struct Controller {
     capture: Option<Capture>,
     escape_registered: bool,
     last_level: Instant,
+    /// When the user pressed Stop, to report how long the text took to arrive.
+    stopped_at: Option<Instant>,
 }
 
 /// Starts the controller thread. `engine_events` is the receiving end of the
@@ -92,6 +96,7 @@ pub fn spawn(app: AppHandle, engine: Engine, engine_events: std::sync::mpsc::Rec
         capture: None,
         escape_registered: false,
         last_level: Instant::now(),
+        stopped_at: None,
     };
     let _ = std::thread::Builder::new().name("vox-controller".into()).spawn(move || {
         for msg in rx {
@@ -141,6 +146,7 @@ impl Controller {
             // Dropping the capture stops the mic and joins its thread, so every
             // chunk is already queued ahead of `Finish`.
             Effect::Finish => {
+                self.stopped_at = Some(Instant::now());
                 std::thread::sleep(Duration::from_millis(TAIL_GRACE_MS));
                 self.capture = None;
                 self.engine.send(Command::Finish);
@@ -228,6 +234,7 @@ impl Controller {
                 let _ = self.app.emit("segment", text);
             }
             Event::Finished { text, .. } => {
+                let elapsed_ms = self.stopped_at.take().map(|t| t.elapsed().as_millis() as u64);
                 // Clipboard first: the text is the product, everything else is bookkeeping.
                 let copied = !text.is_empty() && self.app.clipboard().write_text(text.clone()).is_ok();
                 if !text.is_empty() && !copied {
@@ -243,7 +250,7 @@ impl Controller {
                         Err(e) => self.problem(format!("Could not type into the active app ({e}). The text is on your clipboard.")),
                     }
                 }
-                let _ = self.app.emit("finished", Finished { text, copied, pasted });
+                let _ = self.app.emit("finished", Finished { text, copied, pasted, elapsed_ms });
                 let _ = self.app.emit("history", ());
                 self.apply(Input::Finished);
                 self.hide_overlay_later();

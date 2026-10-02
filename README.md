@@ -9,15 +9,16 @@ is on your clipboard and typed into whatever app you're in (toggle in the window
 
 ## Install (no tools needed)
 
-Open the repo's **Actions** tab → *Build Windows installer* → the latest run → download **Vox-Windows-installer**, unzip and run the `.exe`.
-The speech model is bundled; nothing else to install. (Run the workflow with **Run workflow** for a fresh build.)
+Open the repo's **Actions** tab → *Build Windows installer* → the latest run → download **Vox-Windows-GPU-installer** (or **Vox-Windows-installer** for the CPU build), unzip and run the `.exe`.
+The speech model is bundled; nothing else to install. The GPU build uses Vulkan (NVIDIA, AMD or Intel graphics) and bundles the larger, more accurate `large-v3-turbo` model; the CPU build uses a small English model. (Run the workflow with **Run workflow** for a fresh build.)
 
 ## Build from source (Windows)
 
 Prereqs: Rust (MSVC), Visual Studio Build Tools (C++), CMake, LLVM, WebView2 (included in Windows 11), and `cargo install tauri-cli --version "^2"`.
 
-    powershell -File scripts/get-model.ps1
-    cargo tauri build        # installer in target/release/bundle
+    powershell -File scripts/get-model.ps1            # add "-Model large" for the GPU build
+    cargo tauri build                                  # add "--features gpu" for the GPU build
+    #        # installer in target/release/bundle
     cargo tauri dev          # run in development
 
 ## Test

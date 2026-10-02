@@ -6,6 +6,7 @@ const LABELS = {
   loading: "Loading speech model…",
   unavailable: "Unavailable",
   idle: "Ready",
+  off: "Dictation is off",
   recording: "Listening…",
   cancel_pending: "Cancelling…",
   finalizing: "Transcribing…",
@@ -21,6 +22,17 @@ function renderState(kind, remainingMs) {
   $("toggle").textContent = kind === "recording" || kind === "cancel_pending" ? "Stop" : "Start";
   $("toggle").disabled = !["idle", "recording", "cancel_pending"].includes(kind);
   if (kind === "recording" && liveText === "") $("live").textContent = "Listening…";
+  $("enabled").checked = kind !== "off";
+  $("enabled").disabled = kind !== "idle" && kind !== "off";
+  applyStoredEnabled(kind);
+}
+
+// "Dictation on/off" is remembered by the UI and re-applied once the engine is ready.
+let appliedPreference = false;
+function applyStoredEnabled(kind) {
+  if (appliedPreference || (kind !== "idle" && kind !== "off")) return;
+  appliedPreference = true;
+  if (kind === "idle" && localStorage.getItem("dictation") === "off") invoke("set_enabled", { enabled: false });
 }
 
 function renderProblems(list) {
@@ -125,6 +137,10 @@ $("wordform").onsubmit = async (ev) => {
 };
 
 $("toggle").onclick = () => invoke("toggle_recording");
+$("enabled").onchange = () => {
+  localStorage.setItem("dictation", $("enabled").checked ? "on" : "off");
+  invoke("set_enabled", { enabled: $("enabled").checked });
+};
 
 // Clearing is permanent, so the first click arms the button and the second one confirms.
 let disarm = null;
@@ -168,7 +184,7 @@ listen("state", ({ payload }) => {
 });
 listen("segment", ({ payload }) => { liveText += (liveText ? " " : "") + payload; $("live").textContent = liveText; });
 listen("finished", ({ payload }) => {
-  $("live").textContent = payload.text ? (payload.pasted ? "Typed: " : payload.copied ? "Copied to clipboard: " : "") + payload.text : "No speech detected.";
+  $("live").textContent = payload.text ? (payload.pasted ? "Typed: " : payload.copied ? "Copied to clipboard: " : "") + payload.text + (payload.elapsed_ms != null ? `  (${(payload.elapsed_ms / 1000).toFixed(1)} s)` : "") : "No speech detected.";
   liveText = "";
 });
 listen("problem", ({ payload }) => invoke("get_snapshot").then((s) => renderProblems(s.problems)));

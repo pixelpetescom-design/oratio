@@ -2,8 +2,16 @@ name: Build Windows installer
 
 on:
   workflow_dispatch:
+    inputs:
+      gpu:
+        description: "GPU build (Vulkan; NVIDIA/AMD/Intel) with the large, more accurate model"
+        type: boolean
+        default: true
   push:
     tags: ["v*"]
+
+env:
+  GPU: ${{ inputs.gpu && 'true' || 'false' }}
 
 jobs:
   windows:
@@ -17,20 +25,37 @@ jobs:
 
       - name: Download the speech model (bundled into the installer)
         shell: pwsh
-        run: ./scripts/get-model.ps1
+        run: |
+          if ($env:GPU -eq "true") { ./scripts/get-model.ps1 -Model large } else { ./scripts/get-model.ps1 }
+
+      - name: Install the Vulkan SDK (GPU build only)
+        if: env.GPU == 'true'
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP "VulkanSDK-Installer.exe"
+          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-sdk.exe" -OutFile $installer
+          & $installer --accept-licenses --default-answer --confirm-command install
+          $sdk = (Get-ChildItem C:\VulkanSDK | Sort-Object Name -Descending | Select-Object -First 1).FullName
+          "VULKAN_SDK=$sdk" >> $env:GITHUB_ENV
+          "$sdk\Bin" >> $env:GITHUB_PATH
 
       - name: Install the Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
 
       - name: Build installer
+        shell: pwsh
         env:
           LIBCLANG_PATH: C:\Program Files\LLVM\bin
-        run: cargo tauri build
+          # Don't tune the speech engine to the build machine's CPU (it may not match yours);
+          # with this off it targets AVX2/FMA, which every PC from the last decade has.
+          GGML_NATIVE: "OFF"
+        run: |
+          if ($env:GPU -eq "true") { cargo tauri build --features gpu } else { cargo tauri build }
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: Vox-Windows-installer
+          name: ${{ env.GPU == 'true' && 'Vox-Windows-GPU-installer' || 'Vox-Windows-installer' }}
           path: |
             target/release/bundle/nsis/*.exe
             target/release/bundle/msi/*.msi

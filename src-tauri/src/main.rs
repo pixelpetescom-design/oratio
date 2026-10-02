@@ -14,7 +14,7 @@ use tauri_plugin_global_shortcut::ShortcutState;
 use vox_core::engine::Engine;
 use vox_core::history::History;
 use vox_core::lexicon::Lexicon;
-use vox_core::session::Input;
+use vox_core::session::{Input, State};
 use vox_core::stt::Transcriber;
 use vox_store::SqliteStore;
 use vox_stt::WhisperTranscriber;
@@ -26,6 +26,7 @@ fn main() {
             commands::get_snapshot,
             commands::toggle_recording,
             commands::set_auto_paste,
+            commands::set_enabled,
             commands::list_history,
             commands::copy_text,
             commands::delete_entry,
@@ -95,7 +96,14 @@ fn main() {
             // Start/stop is the Ctrl+Win chord, which has to be watched for rather than registered.
             let (on_chord, on_failure) = (ctl.clone(), ctl.clone());
             vox_keys::spawn(
-                move || on_chord.send(Input::Toggle),
+                move || {
+                    // Leave Ctrl+Win to Windows unless dictation is actually available.
+                    let ready = on_chord.shared.state.lock().map(|s| matches!(*s, State::Idle | State::Recording | State::CancelPending { .. })).unwrap_or(false);
+                    if ready {
+                        on_chord.send(Input::Toggle);
+                    }
+                    ready
+                },
                 move |msg| {
                     if let Ok(mut p) = on_failure.shared.problems.lock() {
                         p.push(format!("{msg}. Use the Start button in this window."));

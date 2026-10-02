@@ -44,6 +44,11 @@ pub fn set_auto_paste(ctl: State<'_, Handle>, enabled: bool) {
 }
 
 #[tauri::command]
+pub fn set_enabled(ctl: State<'_, Handle>, enabled: bool) {
+    ctl.send(if enabled { Input::Enable } else { Input::Disable });
+}
+
+#[tauri::command]
 pub fn toggle_recording(ctl: State<'_, Handle>) {
     ctl.send(Input::Toggle);
 }

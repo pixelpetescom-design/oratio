@@ -18,8 +18,9 @@ fn is_win(k: &Keycode) -> bool {
 }
 
 /// Starts watching on a background thread. `on_chord` runs each time Ctrl+Win is
-/// pressed; `on_failure` runs once if the watcher dies, so the app can say so.
-pub fn spawn(on_chord: impl Fn() + Send + 'static, on_failure: impl FnOnce(String) + Send + 'static) {
+/// pressed and returns whether the app claimed it (when it didn't, e.g. dictation is off,
+/// the keys are left entirely to Windows); `on_failure` runs once if the watcher dies, so the app can say so.
+pub fn spawn(on_chord: impl Fn() -> bool + Send + 'static, on_failure: impl FnOnce(String) + Send + 'static) {
     let started = std::thread::Builder::new().name("vox-keys".into()).spawn(move || {
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             let keyboard = DeviceState::new();
@@ -30,9 +31,8 @@ pub fn spawn(on_chord: impl Fn() + Send + 'static, on_failure: impl FnOnce(Strin
                 let keys = keyboard.get_keys();
                 let (ctrl, win) = (keys.iter().any(is_ctrl), keys.iter().any(is_win));
                 let other = keys.iter().any(|k| !is_ctrl(k) && !is_win(k));
-                if detector.update(clock.elapsed().as_millis() as u64, ctrl, win, other) {
+                if detector.update(clock.elapsed().as_millis() as u64, ctrl, win, other) && on_chord() {
                     suppress_start_menu();
-                    on_chord();
                 }
             }
         }));

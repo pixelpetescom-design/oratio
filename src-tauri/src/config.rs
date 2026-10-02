@@ -13,12 +13,16 @@ pub const CANCEL_GRACE_MS: u64 = 3_000;
 pub const OVERLAY_LINGER_MS: u64 = 1_400;
 
 /// Keep the microphone open this long after Stop so the last word isn't clipped.
-pub const TAIL_GRACE_MS: u64 = 200;
+pub const TAIL_GRACE_MS: u64 = 150;
 
 /// Lets the clipboard settle before the paste keystroke is sent.
 pub const PASTE_DELAY_MS: u64 = 50;
 
 pub const HISTORY_LIMIT: u32 = 500;
+/// With a GPU there is headroom for a far more accurate model; the CPU build stays small and quick.
+#[cfg(feature = "gpu")]
+pub const MODEL_FILE: &str = "ggml-large-v3-turbo-q5_0.bin";
+#[cfg(not(feature = "gpu"))]
 pub const MODEL_FILE: &str = "ggml-base.en-q5_1.bin";
 
 pub fn escape_shortcut() -> Shortcut {

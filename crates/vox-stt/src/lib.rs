@@ -19,6 +19,14 @@ pub struct WhisperTranscriber {
     prompt: String,
 }
 
+/// Whisper's encoder always processes a fixed 30 s window unless told otherwise, so a 3 s
+/// phrase costs as much as a 30 s one. 50 encoder frames = 1 s; give the clip its length plus
+/// a 1 s margin, rounded up to a multiple of 64, never below ~10 s of context or above the 30 s maximum.
+fn audio_ctx_for(samples: usize) -> i32 {
+    let frames = (samples as f32 / 16_000.0 + 1.0) * 50.0;
+    (((frames / 64.0).ceil() as i32) * 64).clamp(512, 1500)
+}
+
 fn stt_err(e: impl std::fmt::Display) -> CoreError {
     CoreError::Stt(e.to_string())
 }
@@ -49,6 +57,12 @@ impl Transcriber for WhisperTranscriber {
         p.set_translate(false);
         p.set_n_threads(self.threads);
         p.set_no_context(true);
+        // Speed: skip timestamp decoding, treat each utterance as one segment, never re-decode
+        // at higher temperatures, and only encode as much audio as there is.
+        p.set_no_timestamps(true);
+        p.set_single_segment(true);
+        p.set_temperature_inc(0.0);
+        p.set_audio_ctx(audio_ctx_for(audio.len()));
         p.set_suppress_blank(true);
         // The segmenter already gated out silence; don't let the model second-guess quiet speech.
         p.set_no_speech_thold(0.9);
@@ -79,6 +93,19 @@ impl Transcriber for WhisperTranscriber {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn audio_context_scales_with_clip_length_and_stays_in_bounds() {
+        assert_eq!(audio_ctx_for(16_000 * 3), 512); // short clips get the floor
+        assert_eq!(audio_ctx_for(16_000 * 10), 576);
+        assert_eq!(audio_ctx_for(16_000 * 25), 1344);
+        assert_eq!(audio_ctx_for(16_000 * 40), 1500); // never beyond the model's window
+        assert!(audio_ctx_for(0) >= 512);
+        // The context must always cover the audio, or the end of the clip would be ignored.
+        for secs in 1..=29 {
+            assert!(audio_ctx_for(16_000 * secs) >= secs as i32 * 50, "{secs}s");
+        }
+    }
 
     /// Needs a real model: `VOX_MODEL=models/ggml-base.en-q5_1.bin cargo test -p vox-stt -- --ignored`
     #[test]

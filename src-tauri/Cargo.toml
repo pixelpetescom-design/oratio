@@ -20,5 +20,9 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 
+[features]
+# GPU-accelerated speech recognition; build with `cargo tauri build --features gpu`.
+gpu = ["vox-stt/vulkan"]
+
 [lints]
 workspace = true

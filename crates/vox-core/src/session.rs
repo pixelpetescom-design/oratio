@@ -18,6 +18,8 @@ pub enum State {
     Loading,
     Unavailable,
     Idle,
+    /// The user switched dictation off: the hotkey is ignored and the mic never opens.
+    Off,
     Recording,
     CancelPending { deadline: Millis },
     Finalizing,
@@ -27,6 +29,8 @@ pub enum State {
 pub enum Input {
     EngineReady,
     EngineFailed,
+    Enable,
+    Disable,
     Toggle,
     Escape,
     Tick,
@@ -70,6 +74,9 @@ pub fn step(state: State, input: Input, now: Millis, cancel_grace: Millis) -> (S
         (_, EngineFailed) => (Unavailable, None),
 
         (Idle, Toggle) => (Recording, Some(StartRecording)),
+        // Only switch off when nothing is in flight; the UI offers the switch only then.
+        (Idle, Disable) => (Off, None),
+        (Off, Enable) => (Idle, None),
 
         (Recording, Toggle) => (Finalizing, Some(Finish)),
         (Recording, Escape) => (CancelPending { deadline: now + cancel_grace }, None),
@@ -174,10 +181,31 @@ mod tests {
     }
 
     #[test]
+    fn switching_off_ignores_the_hotkey_until_switched_back_on() {
+        let (s, fx) = run(State::Idle, &[(Input::Disable, 0), (Input::Toggle, 1), (Input::Escape, 2), (Input::Tick, 3)]);
+        assert_eq!((s, fx), (State::Off, vec![]));
+        let (s, fx) = run(s, &[(Input::Enable, 4), (Input::Toggle, 5)]);
+        assert_eq!((s, fx), (State::Recording, vec![Effect::StartRecording]));
+    }
+
+    #[test]
+    fn cannot_switch_off_mid_recording_or_before_ready() {
+        assert_eq!(run(State::Recording, &[(Input::Disable, 0)]).0, State::Recording);
+        assert_eq!(run(State::Finalizing, &[(Input::Disable, 0)]).0, State::Finalizing);
+        assert_eq!(run(State::Loading, &[(Input::Disable, 0)]).0, State::Loading);
+        assert_eq!(run(State::Idle, &[(Input::Enable, 0)]).0, State::Idle);
+    }
+
+    #[test]
+    fn engine_failure_while_off_is_still_reported() {
+        assert_eq!(run(State::Off, &[(Input::EngineFailed, 0)]).0, State::Unavailable);
+    }
+
+    #[test]
     fn escape_is_only_wanted_while_it_means_something() {
         assert!(State::Recording.wants_escape());
         assert!(State::CancelPending { deadline: 1 }.wants_escape());
-        for s in [State::Idle, State::Loading, State::Finalizing, State::Unavailable] {
+        for s in [State::Idle, State::Off, State::Loading, State::Finalizing, State::Unavailable] {
             assert!(!s.wants_escape());
         }
     }

@@ -26,6 +26,7 @@ kbd { font: inherit; font-size: 12px; background: var(--panel); border: 1px soli
 .dot.recording { background: var(--rec); animation: pulse 1.1s ease-in-out infinite; }
 .dot.cancel_pending { background: var(--warn); animation: pulse 0.5s ease-in-out infinite; }
 .dot.finalizing { background: var(--think); }
+.dot.off { background: #666; }
 .dot.unavailable { background: var(--bad); }
 @keyframes pulse { 50% { opacity: 0.35; } }
 button:disabled { opacity: 0.4; cursor: default; }
