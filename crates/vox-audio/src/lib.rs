@@ -56,6 +56,13 @@ impl Drop for Capture {
 fn open(sink: impl FnMut(Vec<f32>) + Send + 'static) -> Result<cpal::Stream, CoreError> {
     let device = cpal::default_host().default_input_device().ok_or_else(|| CoreError::Audio("no microphone found".into()))?;
     let supported = device.default_input_config().map_err(audio_err)?;
+    eprintln!(
+        "[vox] microphone: {} ({} Hz, {} ch, {:?})",
+        device.name().unwrap_or_else(|_| "unknown".into()),
+        supported.sample_rate().0,
+        supported.channels(),
+        supported.sample_format()
+    );
     let config: cpal::StreamConfig = supported.clone().into();
     let stream = match supported.sample_format() {
         SampleFormat::F32 => build::<f32>(&device, &config, sink)?,
@@ -74,13 +81,21 @@ where
 {
     let channels = usize::from(config.channels).max(1);
     let mut resampler = Resampler::new(config.sample_rate.0);
+    // Averaging channels can cancel the voice when a mic array sends it phase-inverted
+    // (or silence on one side), so follow whichever channel is carrying the most signal.
+    let mut energy = vec![0.0f32; channels];
     device
         .build_input_stream(
             config,
             move |data: &[T], _| {
                 let mut out = Vec::with_capacity(data.len() / channels);
                 for frame in data.chunks(channels) {
-                    let mono = frame.iter().map(|s| f32::from_sample(*s)).sum::<f32>() / channels as f32;
+                    for (e, s) in energy.iter_mut().zip(frame) {
+                        let v = f32::from_sample(*s);
+                        *e = *e * 0.9995 + v * v * 0.0005;
+                    }
+                    let best = energy.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)).map_or(0, |(i, _)| i);
+                    let mono = frame.get(best).map_or(0.0, |s| f32::from_sample(*s));
                     resampler.push(mono, &mut out);
                 }
                 if !out.is_empty() {

@@ -50,7 +50,7 @@ impl Default for SegmenterConfig {
             min_speech_frames: 8,
             min_flush_frames: 3,
             max_samples: SAMPLE_RATE * 25,
-            min_threshold: 0.004,
+            min_threshold: 0.0015,
             noise_multiplier: 3.0,
         }
     }
@@ -77,7 +77,7 @@ impl Segmenter {
             speaking: false,
             speech_frames: 0,
             silence_frames: 0,
-            noise_floor: 0.002,
+            noise_floor: 0.001,
         }
     }
 
@@ -92,6 +92,10 @@ impl Segmenter {
             }
         }
         done
+    }
+
+    pub fn noise_floor(&self) -> f32 {
+        self.noise_floor
     }
 
     /// Close out whatever is in flight (the user pressed stop).
@@ -182,7 +186,7 @@ mod tests {
 
     #[test]
     fn quiet_speech_is_still_detected() {
-        let quiet: Vec<f32> = tone(800).iter().map(|s| s * 0.04).collect(); // rms ~0.008
+        let quiet: Vec<f32> = tone(800).iter().map(|s| s * 0.02).collect(); // rms ~0.004, like a very quiet mic
         let mut s = Segmenter::new(SegmenterConfig::default());
         let out = feed(&mut s, &[silence(500), quiet, silence(900)]);
         assert_eq!(out.len(), 1);

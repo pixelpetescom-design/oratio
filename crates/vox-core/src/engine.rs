@@ -157,7 +157,12 @@ fn run(load: Loader, history: Arc<dyn History>, rx: Receiver<Command>, events: S
                 if let Some(rest) = segmenter.flush() {
                     recognise(&mut t, rest, &emit);
                 }
-                eprintln!("[vox] stopped: {} utterance(s) recognised, loudest level {:.4}", t.texts.len(), t.max_level);
+                eprintln!(
+                    "[vox] stopped: {} utterance(s) recognised, loudest level {:.4}, background noise {:.4}",
+                    t.texts.len(),
+                    t.max_level,
+                    segmenter.noise_floor()
+                );
                 if t.texts.is_empty() {
                     let _ = history.delete(t.id);
                     match t.last_error {
