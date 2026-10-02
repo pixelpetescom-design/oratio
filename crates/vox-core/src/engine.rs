@@ -8,7 +8,7 @@
 
 use crate::history::{History, RecordingId};
 use crate::polish::polish;
-use crate::segmenter::{rms, Segmenter, SegmenterConfig};
+use crate::segmenter::{normalize, rms, Segmenter, SegmenterConfig, SAMPLE_RATE};
 use crate::stt::Transcriber;
 use crate::CoreError;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -79,6 +79,8 @@ struct Take {
     id: RecordingId,
     texts: Vec<String>,
     last_error: Option<String>,
+    /// Loudest chunk heard, for diagnosing "it heard nothing" reports.
+    max_level: f32,
 }
 
 fn run(load: Loader, history: Arc<dyn History>, rx: Receiver<Command>, events: Sender<Event>) {
@@ -95,8 +97,21 @@ fn run(load: Loader, history: Arc<dyn History>, rx: Receiver<Command>, events: S
     let mut segmenter = Segmenter::new(SegmenterConfig::default());
     let mut take: Option<Take> = None;
 
-    let mut recognise = |take: &mut Take, audio: Vec<f32>, segmenter_events: &dyn Fn(Event)| {
-        match catch_unwind(AssertUnwindSafe(|| transcriber.transcribe(&audio))) {
+    let mut recognise = |take: &mut Take, mut audio: Vec<f32>, segmenter_events: &dyn Fn(Event)| {
+        normalize(&mut audio);
+        let started = std::time::Instant::now();
+        let result = catch_unwind(AssertUnwindSafe(|| transcriber.transcribe(&audio)));
+        eprintln!(
+            "[vox] utterance {:.1}s -> {} in {} ms",
+            audio.len() as f32 / SAMPLE_RATE as f32,
+            match &result {
+                Ok(Ok(t)) => format!("{:?}", t.trim()),
+                Ok(Err(e)) => format!("error: {e}"),
+                Err(_) => "crash".into(),
+            },
+            started.elapsed().as_millis()
+        );
+        match result {
             Ok(Ok(text)) => {
                 let text = text.trim().to_string();
                 if text.is_empty() {
@@ -121,13 +136,15 @@ fn run(load: Loader, history: Arc<dyn History>, rx: Receiver<Command>, events: S
                     let _ = history.fail(old.id, "superseded by a new recording");
                 }
                 match history.begin(started_at_ms) {
-                    Ok(id) => take = Some(Take { id, texts: vec![], last_error: None }),
+                    Ok(id) => take = Some(Take { id, texts: vec![], last_error: None, max_level: 0.0 }),
                     Err(e) => emit(Event::Failed { reason: e.to_string() }),
                 }
             }
             Command::Audio(chunk) => {
                 let Some(t) = take.as_mut() else { continue };
-                emit(Event::Level(rms(&chunk)));
+                let level = rms(&chunk);
+                t.max_level = t.max_level.max(level);
+                emit(Event::Level(level));
                 for utterance in segmenter.push(&chunk) {
                     recognise(t, utterance, &emit);
                 }
@@ -140,6 +157,7 @@ fn run(load: Loader, history: Arc<dyn History>, rx: Receiver<Command>, events: S
                 if let Some(rest) = segmenter.flush() {
                     recognise(&mut t, rest, &emit);
                 }
+                eprintln!("[vox] stopped: {} utterance(s) recognised, loudest level {:.4}", t.texts.len(), t.max_level);
                 if t.texts.is_empty() {
                     let _ = history.delete(t.id);
                     match t.last_error {

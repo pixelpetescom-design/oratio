@@ -13,6 +13,18 @@ pub fn rms(samples: &[f32]) -> f32 {
     (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt()
 }
 
+/// Boost quiet recordings (typical laptop mics peak far below full scale) so the
+/// recogniser gets a healthy signal. Never amplifies near-silence.
+pub fn normalize(audio: &mut [f32]) {
+    let peak = audio.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    if peak > 0.002 && peak < 0.5 {
+        let gain = (0.8 / peak).min(20.0);
+        for s in audio.iter_mut() {
+            *s *= gain;
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SegmenterConfig {
     pub frame_samples: usize,
@@ -38,7 +50,7 @@ impl Default for SegmenterConfig {
             min_speech_frames: 8,
             min_flush_frames: 3,
             max_samples: SAMPLE_RATE * 25,
-            min_threshold: 0.01,
+            min_threshold: 0.004,
             noise_multiplier: 3.0,
         }
     }
@@ -65,7 +77,7 @@ impl Segmenter {
             speaking: false,
             speech_frames: 0,
             silence_frames: 0,
-            noise_floor: 0.005,
+            noise_floor: 0.002,
         }
     }
 
@@ -153,6 +165,27 @@ mod tests {
     }
     fn feed(seg: &mut Segmenter, parts: &[Vec<f32>]) -> Vec<Vec<f32>> {
         parts.iter().flat_map(|p| seg.push(p)).collect()
+    }
+
+    #[test]
+    fn normalize_boosts_quiet_audio_but_not_silence_or_loud() {
+        let mut quiet = vec![0.02, -0.04, 0.01];
+        normalize(&mut quiet);
+        assert!((quiet[1].abs() - 0.8).abs() < 1e-6);
+        let mut floor = vec![0.0005, -0.001];
+        normalize(&mut floor);
+        assert_eq!(floor, vec![0.0005, -0.001]);
+        let mut loud = vec![0.9, -0.7];
+        normalize(&mut loud);
+        assert_eq!(loud, vec![0.9, -0.7]);
+    }
+
+    #[test]
+    fn quiet_speech_is_still_detected() {
+        let quiet: Vec<f32> = tone(800).iter().map(|s| s * 0.04).collect(); // rms ~0.008
+        let mut s = Segmenter::new(SegmenterConfig::default());
+        let out = feed(&mut s, &[silence(500), quiet, silence(900)]);
+        assert_eq!(out.len(), 1);
     }
 
     #[test]
