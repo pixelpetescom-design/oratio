@@ -1,0 +1,84 @@
+main { max-width: 560px; margin: 0 auto; padding: 18px 18px 80px; display: flex; flex-direction: column; gap: 14px; }
+.top { display: flex; align-items: center; justify-content: space-between; }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; letter-spacing: 0.04em; }
+.logo { width: 22px; height: 22px; border-radius: 7px; background: var(--grad); box-shadow: var(--glow); }
+.status { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+
+/* Hero: orb with a level ring, the wave, and the live text */
+.hero { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 16px 18px; }
+.orb-wrap { position: relative; width: 132px; height: 132px; display: grid; place-items: center; }
+.ring { position: absolute; inset: 0; transform: rotate(-90deg); }
+.ring .track { fill: none; stroke: rgba(120, 150, 200, 0.18); stroke-width: 5; }
+.ring .arc { fill: none; stroke: url(#rg); stroke-width: 5; stroke-linecap: round; stroke-dasharray: 339.29; stroke-dashoffset: 339.29; filter: drop-shadow(0 0 6px rgba(40, 180, 255, 0.7)); transition: stroke-dashoffset 0.08s linear; }
+.ring.spin { animation: spin 1.1s linear infinite; }
+.ring.spin .arc { stroke-dashoffset: 250 !important; }
+@keyframes spin { to { transform: rotate(270deg); } }
+.orb {
+  position: relative; overflow: hidden; width: 92px; height: 92px; border-radius: 50%; border: none; display: grid; place-items: center; color: #fff;
+  background: var(--grad); box-shadow: var(--glow), inset 0 2px 0 rgba(255, 255, 255, 0.4);
+  transition: transform 0.15s var(--ease), box-shadow 0.25s, background 0.3s;
+}
+.orb svg { width: 36px; height: 36px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.orb:hover:not(:disabled) { transform: scale(1.05); box-shadow: 0 10px 38px rgba(0, 170, 255, 0.7), inset 0 2px 0 rgba(255, 255, 255, 0.45); }
+.orb:active:not(:disabled) { transform: scale(0.94); }
+.orb:disabled { background: linear-gradient(180deg, #3a4660, #263147); box-shadow: none; cursor: default; color: var(--muted); }
+.orb.recording { background: linear-gradient(180deg, #ff7a8a, #e0304f); box-shadow: 0 0 34px rgba(255, 70, 100, 0.6), inset 0 2px 0 rgba(255, 255, 255, 0.4); animation: breathe 1.6s ease-in-out infinite; }
+.orb.cancel_pending { background: linear-gradient(180deg, #ffd27a, #e08a10); box-shadow: 0 0 30px rgba(255, 170, 40, 0.55); }
+.orb.finalizing { background: linear-gradient(180deg, #b58bff, #6b3df0); box-shadow: 0 0 30px rgba(140, 90, 255, 0.55); }
+@keyframes breathe { 50% { transform: scale(1.04); } }
+#wave { width: 50%; min-width: 180px; height: 116px; display: block; }
+.live { text-align: center; color: var(--muted); min-height: 2.8em; padding: 0 6px; }
+.live.has-text { color: var(--text); font-size: 15px; }
+
+#problems { display: none; border: 1px solid rgba(255, 90, 110, 0.6); background: rgba(255, 60, 90, 0.1); border-radius: 14px; padding: 10px 14px; white-space: pre-wrap; font-size: 13px; }
+
+/* Options */
+.options { display: flex; flex-direction: column; gap: 14px; }
+
+/* Stats: gauge + segmented bars, like the reference kit */
+.stats { display: flex; align-items: center; gap: 18px; }
+.gauge { position: relative; width: 96px; height: 96px; flex: none; }
+.gauge svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.gauge .track { fill: none; stroke: rgba(120, 150, 200, 0.18); stroke-width: 8; }
+.gauge .arc { fill: none; stroke: url(#rg); stroke-width: 8; stroke-linecap: round; stroke-dasharray: 314.16; stroke-dashoffset: 314.16; transition: stroke-dashoffset 0.8s var(--ease); }
+.gauge-text { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.gauge-text b { font-size: 20px; }
+.gauge-text span { font-size: 10px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+.bars-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.bars { display: flex; align-items: flex-end; gap: 6px; height: 64px; }
+.bar { flex: 1; min-height: 4px; border-radius: 4px; background: repeating-linear-gradient(0deg, rgba(10, 92, 245, 0.9) 0 4px, transparent 4px 6px), linear-gradient(0deg, #0a5cf5, #25cfff); background-blend-mode: normal; animation: grow 0.5s var(--ease); transform-origin: bottom; }
+.bar.empty { background: rgba(120, 150, 200, 0.14); height: 4px; animation: none; }
+@keyframes grow { from { transform: scaleY(0); } }
+
+/* History */
+.history-head { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+.confirm { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-color: rgba(255, 90, 110, 0.5); animation: drop 0.25s var(--ease); }
+.confirm .row { display: flex; gap: 8px; }
+@keyframes drop { from { opacity: 0; transform: translateY(-8px); } }
+#list { display: flex; flex-direction: column; gap: 10px; }
+.entry { animation: rise 0.35s var(--ease) backwards; transition: border-color 0.2s, box-shadow 0.2s; }
+.entry:hover { border-color: rgba(0, 170, 255, 0.45); box-shadow: 0 0 22px rgba(0, 120, 255, 0.12); }
+.entry.failed { border-color: rgba(255, 176, 32, 0.5); }
+.entry .meta { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.entry .meta .grow { flex: 1; }
+.entry .text { white-space: pre-wrap; user-select: text; font-size: 15px; }
+.entry textarea { width: 100%; min-height: 84px; resize: vertical; font: inherit; color: var(--text); background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+.entry textarea:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(25, 208, 255, 0.18); }
+.entry .edit-row { display: flex; gap: 8px; margin-top: 10px; }
+.empty { color: var(--muted); text-align: center; padding: 28px 0; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+
+/* Learned words */
+details summary { cursor: pointer; color: var(--muted); font-weight: 600; transition: color 0.2s; }
+details summary:hover, details[open] summary { color: var(--text); }
+.hint { color: var(--muted); font-size: 12px; margin: 10px 0; }
+#wordform { display: flex; align-items: stretch; gap: 8px; }
+.field-icon { display: grid; place-items: center; width: 40px; border-radius: 8px; background: linear-gradient(180deg, #1fb6ff, #0a5cf5); font-weight: 700; font-size: 13px; }
+#wordform input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+#wordform input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(25, 208, 255, 0.18); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 12px; border-radius: 999px; font-size: 13px; background: rgba(0, 130, 255, 0.1); border: 1px solid rgba(0, 170, 255, 0.4); animation: rise 0.25s var(--ease) backwards; }
+.chip button { border: none; background: none; color: var(--muted); width: 22px; height: 22px; border-radius: 50%; transition: background 0.2s, color 0.2s; }
+.chip button:hover { background: rgba(255, 90, 110, 0.85); color: #fff; }
+footer { color: var(--muted); font-size: 12px; text-align: center; }
+.btn { white-space: nowrap; }

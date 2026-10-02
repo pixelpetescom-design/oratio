@@ -15,6 +15,10 @@ pub const OVERLAY_LINGER_MS: u64 = 1_400;
 /// Keep the microphone open this long after Stop so the last word isn't clipped.
 pub const TAIL_GRACE_MS: u64 = 150;
 
+/// A dictation typed within this long of the previous one is assumed to continue the same text,
+/// so it gets a leading space.
+pub const CONTINUATION_WINDOW_MS: u64 = 3 * 60 * 1000;
+
 /// Lets the clipboard settle before the paste keystroke is sent.
 pub const PASTE_DELAY_MS: u64 = 50;
 

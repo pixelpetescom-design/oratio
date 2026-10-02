@@ -5,7 +5,9 @@ use crate::controller::Handle;
 use serde::Serialize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::window::{Color, Effect, EffectsBuilder};
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use vox_core::history::{History, Status};
 use vox_core::lexicon::{learn_from_edit, Fix, Lexicon};
@@ -75,8 +77,14 @@ pub fn delete_entry(history: State<'_, Arc<dyn History>>, id: i64) -> Result<(),
     history.delete(id).map_err(|e| e.to_string())
 }
 
+/// Deletes the whole history. Anything left "recording" by an interrupted session is swept up first,
+/// unless a dictation is genuinely in progress right now.
 #[tauri::command]
-pub fn clear_history(history: State<'_, Arc<dyn History>>) -> Result<usize, String> {
+pub fn clear_history(ctl: State<'_, Handle>, history: State<'_, Arc<dyn History>>) -> Result<usize, String> {
+    let busy = ctl.shared.state.lock().map(|s| matches!(*s, Phase::Recording | Phase::CancelPending { .. } | Phase::Finalizing)).unwrap_or(true);
+    if !busy {
+        history.recover_interrupted().map_err(|e| e.to_string())?;
+    }
     history.clear().map_err(|e| e.to_string())
 }
 
@@ -115,4 +123,26 @@ pub fn edit_entry(
     text: String,
 ) -> Result<usize, String> {
     learn_from_edit(history.as_ref(), lexicon.as_ref(), id, &text).map_err(|e| e.to_string())
+}
+
+/// Turns the frosted-glass window effect (Windows acrylic) on or off. Returns whether it is
+/// actually showing, so the UI can fall back to a solid background where it isn't supported.
+#[tauri::command]
+pub fn set_glass(app: AppHandle, enabled: bool) -> bool {
+    let Some(window) = app.get_webview_window("main") else { return false };
+    let effects = enabled.then(|| EffectsBuilder::new().effect(Effect::Acrylic).color(Color(10, 15, 25, 120)).build());
+    window.set_effects(effects).is_ok() && enabled && cfg!(windows)
+}
+
+/// Whether Vox is set to launch when the user signs in (read from the OS, the source of truth).
+#[tauri::command]
+pub fn get_autostart(app: AppHandle) -> bool {
+    app.autolaunch().is_enabled().unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<bool, String> {
+    let launcher = app.autolaunch();
+    if enabled { launcher.enable() } else { launcher.disable() }.map_err(|e| e.to_string())?;
+    launcher.is_enabled().map_err(|e| e.to_string())
 }

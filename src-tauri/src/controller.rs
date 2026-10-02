@@ -3,7 +3,7 @@
 //! there are no races between, say, a double Escape and the cancel timer.
 //! The pure rules live in `vox_core::session`; this file only performs effects.
 
-use crate::config::{escape_shortcut, CANCEL_GRACE_MS, OVERLAY_LINGER_MS, PASTE_DELAY_MS, TAIL_GRACE_MS};
+use crate::config::{escape_shortcut, CANCEL_GRACE_MS, CONTINUATION_WINDOW_MS, OVERLAY_LINGER_MS, PASTE_DELAY_MS, TAIL_GRACE_MS};
 use serde::Serialize;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,6 +14,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use vox_audio::Capture;
 use vox_core::engine::{Command, Engine, Event};
+use vox_core::polish::continuation;
 use vox_core::session::{step, Effect, Input, State};
 
 pub enum Msg {
@@ -69,6 +70,8 @@ struct Controller {
     last_level: Instant,
     /// When the user pressed Stop, to report how long the text took to arrive.
     stopped_at: Option<Instant>,
+    /// When we last typed text into another app, to space consecutive dictations.
+    last_paste: Option<Instant>,
 }
 
 /// Starts the controller thread. `engine_events` is the receiving end of the
@@ -97,6 +100,7 @@ pub fn spawn(app: AppHandle, engine: Engine, engine_events: std::sync::mpsc::Rec
         escape_registered: false,
         last_level: Instant::now(),
         stopped_at: None,
+        last_paste: None,
     };
     let _ = std::thread::Builder::new().name("vox-controller".into()).spawn(move || {
         for msg in rx {
@@ -236,17 +240,25 @@ impl Controller {
             Event::Finished { text, .. } => {
                 let elapsed_ms = self.stopped_at.take().map(|t| t.elapsed().as_millis() as u64);
                 // Clipboard first: the text is the product, everything else is bookkeeping.
-                let copied = !text.is_empty() && self.app.clipboard().write_text(text.clone()).is_ok();
+                // When typing into an app straight after a previous dictation, lead with a space so the
+                // two don't run together; a manual paste stays clean.
+                let auto_paste = self.shared.auto_paste.load(Ordering::Relaxed);
+                let continuing = auto_paste && self.last_paste.is_some_and(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS));
+                let clip = if continuing { continuation(&text) } else { text.clone() };
+                let copied = !text.is_empty() && self.app.clipboard().write_text(clip).is_ok();
                 if !text.is_empty() && !copied {
                     self.problem("Could not write to the clipboard; the text is saved in history.".into());
                 }
                 let mut pasted = false;
-                if copied && self.shared.auto_paste.load(Ordering::Relaxed) {
+                if copied && auto_paste {
                     // Still holding Ctrl+Win would turn the paste into Win+V (clipboard history).
                     vox_keys::wait_for_chord_release(Duration::from_millis(1500));
                     std::thread::sleep(Duration::from_millis(PASTE_DELAY_MS));
                     match vox_paste::paste_from_clipboard() {
-                        Ok(()) => pasted = true,
+                        Ok(()) => {
+                            pasted = true;
+                            self.last_paste = Some(Instant::now());
+                        }
                         Err(e) => self.problem(format!("Could not type into the active app ({e}). The text is on your clipboard.")),
                     }
                 }

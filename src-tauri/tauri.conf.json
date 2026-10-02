@@ -16,16 +16,24 @@
         "label": "main",
         "title": "Vox",
         "url": "index.html",
-        "width": 520,
-        "height": 660,
-        "minWidth": 380,
-        "minHeight": 420
+        "width": 540,
+        "height": 780,
+        "minWidth": 420,
+        "minHeight": 560,
+        "transparent": true,
+        "windowEffects": {
+          "effects": [
+            "acrylic"
+          ],
+          "color": "#0a0f1978"
+        },
+        "visible": false
       },
       {
         "label": "overlay",
         "url": "overlay.html",
-        "width": 380,
-        "height": 108,
+        "width": 300,
+        "height": 170,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,

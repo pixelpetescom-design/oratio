@@ -22,11 +22,16 @@ use vox_stt::WhisperTranscriber;
 fn main() {
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
+        // Launched at sign-in with --hidden, Vox starts quietly in the tray.
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
         .invoke_handler(tauri::generate_handler![
             commands::get_snapshot,
             commands::toggle_recording,
             commands::set_auto_paste,
             commands::set_enabled,
+            commands::set_glass,
+            commands::get_autostart,
+            commands::set_autostart,
             commands::list_history,
             commands::copy_text,
             commands::delete_entry,
@@ -140,6 +145,11 @@ fn main() {
                 }
             })
             .build(app)?;
+
+            // The window starts hidden so a sign-in launch (--hidden) stays in the tray.
+            if !std::env::args().any(|a| a == "--hidden") {
+                show_main(&handle);
+            }
             Ok(())
         })
         .run(tauri::generate_context!());

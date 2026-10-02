@@ -76,6 +76,16 @@ pub fn polish<S: AsRef<str>>(segments: &[S]) -> String {
     out
 }
 
+/// Text to insert when it continues what the previous dictation typed in the same place:
+/// a leading space, unless it begins with closing punctuation that belongs to the previous words.
+pub fn continuation(text: &str) -> String {
+    if text.starts_with(['.', ',', ';', ':', '!', '?', ')']) {
+        text.to_string()
+    } else {
+        format!(" {text}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,6 +121,13 @@ mod tests {
     #[test]
     fn tidies_spacing_before_punctuation() {
         assert_eq!(polish(&["wait , what ?"]), "Wait, what?");
+    }
+
+    #[test]
+    fn continuation_adds_a_space_unless_punctuation_leads() {
+        assert_eq!(continuation("And then we left."), " And then we left.");
+        assert_eq!(continuation(", right?"), ", right?");
+        assert_eq!(continuation("?"), "?");
     }
 
     #[test]

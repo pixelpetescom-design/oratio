@@ -19,7 +19,7 @@
   function create(canvas) {
     const ctx = canvas.getContext("2d");
     let w = 0, h = 0;
-    let mode = "idle", level = 0, peak = 0.02, amp = 0, t = 0, last = performance.now();
+    let mode = "idle", level = 0, peak = 0.006, noise = 0.002, amp = 0, t = 0, last = performance.now();
 
     function fit() {
       const r = canvas.getBoundingClientRect();
@@ -47,16 +47,16 @@
       last = now;
       t += dt;
       const target =
-        mode === "listening" ? 0.07 + level * 0.93
-        : mode === "thinking" ? 0.32 + 0.14 * Math.sin(t * 3)
-        : mode === "cancel" ? 0.24 + 0.1 * Math.sin(t * 8)
+        mode === "listening" ? 0.05 + 0.95 * level
+        : mode === "thinking" ? 0.5 + 0.2 * Math.sin(t * 3)
+        : mode === "cancel" ? 0.42 + 0.15 * Math.sin(t * 8)
         : 0.015;
       amp += (target - amp) * Math.min(1, dt * 10);
 
       ctx.clearRect(0, 0, w, h);
       ctx.globalCompositeOperation = "lighter";
       const mid = h / 2;
-      const maxHeight = h * 0.5;
+      const maxHeight = h * 0.48;
 
       // The thin centre line.
       ctx.fillStyle = gradient(0.55);
@@ -92,11 +92,17 @@
     requestAnimationFrame(frame);
 
     return {
+      getLevel() { return level; },
       setMode(m) { mode = PALETTES[m] ? m : "idle"; },
-      // Raw mic RMS; normalised against the recent peak so a quiet microphone still moves the wave.
+      // Raw mic RMS. The room's background level is learned (falls fast, rises slowly) so silence stays
+      // flat, and speech is scaled between that floor and the recent peak, so even a quiet microphone
+      // swings the wave most of the way up.
       setLevel(rms) {
-        peak = Math.max(peak * 0.998, rms, 0.02);
-        level = Math.min(1, rms / peak);
+        noise = rms < noise ? rms : noise + (rms - noise) * 0.0005;
+        peak = Math.max(peak * 0.996, rms, noise * 4, 0.004);
+        const gate = noise * 1.6;
+        const x = Math.max(0, (rms - gate) / Math.max(1e-6, peak - gate));
+        level = Math.min(1, Math.pow(x, 0.6) * 1.15);
       },
     };
   }

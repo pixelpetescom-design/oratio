@@ -5,59 +5,69 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vox</title>
   <link rel="stylesheet" href="style.css">
-  <style>
-    main { display: flex; flex-direction: column; height: 100vh; padding: 16px; gap: 12px; }
-    header { display: flex; align-items: center; gap: 10px; }
-    header h1 { font-size: 16px; margin: 0; flex: 1; }
-    .wave { width: 100%; height: 64px; flex: none; }
-    #problems { display: none; border: 1px solid var(--bad); background: rgba(248, 113, 113, 0.10); border-radius: 8px; padding: 8px 12px; white-space: pre-wrap; font-size: 13px; }
-    #live { min-height: 3.2em; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 10px 12px; color: var(--muted); }
-    #list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
-    .entry { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 10px 12px; }
-    .entry .meta { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
-    .entry .meta .grow { flex: 1; }
-    .entry .text { white-space: pre-wrap; user-select: text; }
-    .entry.failed { border-color: rgba(250, 204, 21, 0.45); }
-    .empty { color: var(--muted); text-align: center; margin-top: 32px; }
-    .opt { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
-    .danger { width: 100%; padding: 12px; font-size: 15px; font-weight: 600; border-color: rgba(248, 113, 113, 0.5); color: var(--bad); }
-    .danger:hover:not(:disabled) { background: rgba(248, 113, 113, 0.14); }
-    .danger.armed { background: var(--bad); color: #1a0c0c; }
-    details { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 8px 12px; }
-    summary { cursor: pointer; color: var(--muted); }
-    .hint { color: var(--muted); font-size: 12px; margin: 8px 0; }
-    #wordform { display: flex; gap: 8px; margin-bottom: 8px; }
-    #wordform input, .entry textarea { flex: 1; font: inherit; color: var(--text); background: rgba(0,0,0,0.25); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
-    .entry textarea { width: 100%; min-height: 80px; resize: vertical; }
-    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-    .chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 13px; }
-    .chip button { padding: 0 4px; border: none; background: none; color: var(--muted); }
-    footer { color: var(--muted); font-size: 12px; }
-  </style>
+  <link rel="stylesheet" href="app.css">
 </head>
 <body>
 <main>
-  <header>
-    <span id="dot" class="dot loading"></span>
-    <h1 id="status">Loading speech model…</h1>
-    <button id="toggle">Start</button>
+  <header class="top">
+    <div class="brand"><span class="logo"></span>Vox</div>
+    <div class="status"><span id="dot" class="dot loading"></span><span id="status">Loading speech model…</span></div>
   </header>
-  <label class="opt"><input type="checkbox" id="enabled" checked> Dictation on</label>
-  <label class="opt"><input type="checkbox" id="autopaste"> Type into the active app when I stop</label>
-  <canvas id="wave" class="wave"></canvas>
+
+  <section class="card hero">
+    <div class="orb-wrap">
+      <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+        <defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#19d0ff"/><stop offset="1" stop-color="#8b5cff"/></linearGradient></defs>
+        <circle class="track" cx="60" cy="60" r="54"/>
+        <circle id="arc" class="arc" cx="60" cy="60" r="54"/>
+      </svg>
+      <button id="toggle" class="orb idle" aria-label="Start or stop dictating" disabled></button>
+    </div>
+    <canvas id="wave"></canvas>
+    <div id="live" class="live">Press <kbd id="hotkey">Ctrl + Win</kbd> to start dictating. Press it again to stop; the text is typed where your cursor is.</div>
+  </section>
+
   <div id="problems"></div>
-  <div id="live">Press <kbd id="hotkey">…</kbd> to start dictating. Press it again to stop; the text is copied to your clipboard.</div>
-  <button id="clear" class="danger" disabled>Clear all text</button>
-  <details id="learned">
+
+  <section class="card options">
+    <label class="switch"><input type="checkbox" id="enabled" checked><span class="track"><span class="knob"></span></span><span class="text">Dictation on</span></label>
+    <label class="switch"><input type="checkbox" id="autopaste" checked><span class="track"><span class="knob"></span></span><span class="text">Type into the active app<span class="sub">Otherwise just copy to the clipboard</span></span></label>
+    <label class="switch"><input type="checkbox" id="autostart"><span class="track"><span class="knob"></span></span><span class="text">Start when Windows starts<span class="sub">Runs quietly in the tray, always ready</span></span></label>
+    <label class="switch"><input type="checkbox" id="glass" checked><span class="track"><span class="knob"></span></span><span class="text">Frosted glass<span class="sub">See-through window; turn off if dragging feels laggy</span></span></label>
+  </section>
+
+  <section class="card stats">
+    <div class="gauge" id="gauge">
+      <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="track" cx="60" cy="60" r="50"/><circle id="gaugeArc" class="arc" cx="60" cy="60" r="50"/></svg>
+      <div class="gauge-text"><b id="speed">–</b><span>last speed</span></div>
+    </div>
+    <div class="bars-wrap">
+      <h2>Recent speed</h2>
+      <div id="bars" class="bars" aria-label="Seconds from stop to text for recent dictations"></div>
+    </div>
+  </section>
+
+  <div class="history-head">
+    <h2>History</h2>
+    <button id="clear" class="btn outline danger small" disabled>Clear all</button>
+  </div>
+  <div id="confirm" class="card confirm" hidden>
+    <div id="confirmText">Delete everything?</div>
+    <div class="row"><button id="confirmNo" class="btn outline small">Cancel</button><button id="confirmYes" class="btn danger solid small">Delete all</button></div>
+  </div>
+  <div id="list"></div>
+
+  <details id="learned" class="card">
     <summary>Learned words &amp; corrections</summary>
-    <p class="hint">Words you add here are given to the speech engine as hints. Edit any transcript below and Vox remembers your corrections.</p>
-    <form id="wordform"><input id="wordinput" placeholder="Add a name or term, e.g. Postiz" autocomplete="off"><button>Add</button></form>
+    <p class="hint">Words you add are given to the speech engine as hints. Edit any transcript above and Vox remembers your corrections.</p>
+    <form id="wordform"><span class="field-icon">Aa</span><input id="wordinput" placeholder="Add a name or term, e.g. Postiz" autocomplete="off"><button class="btn primary small">Add</button></form>
     <div id="words" class="chips"></div>
     <div id="fixes" class="chips"></div>
   </details>
-  <div id="list"></div>
+
   <footer>While recording: <kbd>Esc</kbd> starts a cancel countdown, <kbd>Esc</kbd> again resumes. Everything stays on this computer.</footer>
 </main>
+<div id="toasts"></div>
 <script src="wave.js"></script>
 <script src="main.js"></script>
 </body>
