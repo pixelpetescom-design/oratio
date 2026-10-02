@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vox</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    main { display: flex; flex-direction: column; height: 100vh; padding: 16px; gap: 12px; }
+    header { display: flex; align-items: center; gap: 10px; }
+    header h1 { font-size: 16px; margin: 0; flex: 1; }
+    #problems { display: none; border: 1px solid var(--bad); background: rgba(248, 113, 113, 0.10); border-radius: 8px; padding: 8px 12px; white-space: pre-wrap; font-size: 13px; }
+    #live { min-height: 3.2em; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 10px 12px; color: var(--muted); }
+    #list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+    .entry { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 10px 12px; }
+    .entry .meta { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+    .entry .meta .grow { flex: 1; }
+    .entry .text { white-space: pre-wrap; user-select: text; }
+    .entry.failed { border-color: rgba(250, 204, 21, 0.45); }
+    .empty { color: var(--muted); text-align: center; margin-top: 32px; }
+    footer { color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <span id="dot" class="dot loading"></span>
+    <h1 id="status">Loading speech model…</h1>
+    <button id="toggle">Start</button>
+  </header>
+  <div id="problems"></div>
+  <div id="live">Press <kbd id="hotkey">…</kbd> to start dictating. Press it again to stop; the text is copied to your clipboard.</div>
+  <div id="list"></div>
+  <footer>While recording: <kbd>Esc</kbd> starts a cancel countdown, <kbd>Esc</kbd> again resumes. Everything stays on this computer.</footer>
+</main>
+<script src="main.js"></script>
+</body>
+</html>

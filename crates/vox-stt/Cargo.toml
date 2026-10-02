@@ -1,0 +1,12 @@
+[package]
+name = "vox-stt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vox-core = { path = "../vox-core" }
+whisper-rs = "0.14"
+
+[lints]
+workspace = true

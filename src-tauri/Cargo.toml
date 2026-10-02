@@ -1,0 +1,22 @@
+[package]
+name = "vox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Local, offline push-to-dictate with instant clipboard text"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+vox-core = { path = "../crates/vox-core" }
+vox-audio = { path = "../crates/vox-audio" }
+vox-stt = { path = "../crates/vox-stt" }
+vox-store = { path = "../crates/vox-store" }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-clipboard-manager = "2"
+serde = { version = "1", features = ["derive"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,31 @@
+:root {
+  --bg: #0d1017;
+  --panel: rgba(255, 255, 255, 0.05);
+  --line: rgba(255, 255, 255, 0.10);
+  --text: #eef1f6;
+  --muted: rgba(238, 241, 246, 0.55);
+  --accent: #5b9dff;
+  --ok: #4ade80;
+  --warn: #facc15;
+  --bad: #f87171;
+  --rec: #ff5d5d;
+  --think: #c084fc;
+  font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--text); background: var(--bg); }
+button {
+  font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 5px 12px; cursor: pointer;
+}
+button:hover { background: rgba(255, 255, 255, 0.10); }
+kbd { font: inherit; font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.loading { background: var(--warn); }
+.dot.idle { background: var(--ok); }
+.dot.recording { background: var(--rec); animation: pulse 1.1s ease-in-out infinite; }
+.dot.cancel_pending { background: var(--warn); animation: pulse 0.5s ease-in-out infinite; }
+.dot.finalizing { background: var(--think); }
+.dot.unavailable { background: var(--bad); }
+@keyframes pulse { 50% { opacity: 0.35; } }
+button:disabled { opacity: 0.4; cursor: default; }
