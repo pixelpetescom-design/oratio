@@ -1,9 +1,10 @@
 //! Tunables in one place. (A settings screen is out of scope for the MVP.)
 
-use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
+use tauri_plugin_global_shortcut::{Code, Shortcut};
 
-/// Human-readable form of `toggle_shortcut`, shown in the UI.
-pub const TOGGLE_LABEL: &str = "Ctrl + Shift + Space";
+/// The start/stop chord, shown in the UI. It is detected by `vox-keys` (modifier-only
+/// combinations cannot be registered as OS hotkeys).
+pub const TOGGLE_LABEL: &str = "Ctrl + Win";
 
 /// How long the "are you cancelling?" window lasts after the first Escape.
 pub const CANCEL_GRACE_MS: u64 = 3_000;
@@ -19,10 +20,6 @@ pub const PASTE_DELAY_MS: u64 = 50;
 
 pub const HISTORY_LIMIT: u32 = 500;
 pub const MODEL_FILE: &str = "ggml-base.en-q5_1.bin";
-
-pub fn toggle_shortcut() -> Shortcut {
-    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space)
-}
 
 pub fn escape_shortcut() -> Shortcut {
     Shortcut::new(None, Code::Escape)

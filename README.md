@@ -1,6 +1,6 @@
 # Vox
 
-Local, offline push-to-dictate for Windows. **Ctrl+Shift+Space** to start, again to stop: polished English text
+Local, offline push-to-dictate for Windows. press **Ctrl + Win** to start, again to stop: polished English text
 is on your clipboard and typed into whatever app you're in (toggle in the window; the clipboard copy always happens). No account, no network, no limits. MIT.
 
 * While recording, **Esc** starts a 3-second cancel countdown; **Esc** again resumes; letting it expire discards the recording.

@@ -27,7 +27,7 @@ pub fn paste_from_clipboard() -> Result<(), CoreError> {
     let mut keyboard = Enigo::new(&Settings::default()).map_err(input_err)?;
     // The hotkey's own modifiers may still be physically down; release them so the
     // target app sees a plain Ctrl+V rather than Ctrl+Shift+V.
-    for key in [Key::Shift, Key::Alt] {
+    for key in [Key::Shift, Key::Alt, Key::Meta] {
         keyboard.key(key, Direction::Release).map_err(input_err)?;
     }
     keyboard.key(Key::Control, Direction::Press).map_err(input_err)?;

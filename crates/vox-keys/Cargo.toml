@@ -1,0 +1,13 @@
+[package]
+name = "vox-keys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vox-core = { path = "../vox-core" }
+device_query = "4"
+enigo = "0.6"
+
+[lints]
+workspace = true

@@ -8,7 +8,7 @@ Nothing leaves the machine (the webview CSP allows no network origins and no ada
 ```
             src-tauri  (shell: wiring, hotkeys, clipboard, tray, windows)
            /    |     \        \       \
-    vox-audio vox-stt vox-store vox-paste   adapters: one third-party integration each
+    vox-audio vox-stt vox-store vox-paste vox-keys   adapters: one third-party integration each
            \    |     /
             vox-core                  pure: domain, state machine, ports, engine
 ```
@@ -25,7 +25,8 @@ Nothing leaves the machine (the webview CSP allows no network origins and no ada
 | `Transcriber` | `vox-stt` (whisper.cpp, English) | 16 kHz audio → text |
 | `History` | `vox-store` (SQLite, WAL) | durable recordings + segments |
 
-`vox-paste` presses Ctrl+V in the focused app (clipboard first, so a failed paste never loses text).
+`vox-keys` watches for the Ctrl+Win chord (modifier-only combos can't be OS hotkeys, so it polls key state
+and feeds a pure `ChordDetector` in the core). `vox-paste` presses Ctrl+V in the focused app (clipboard first, so a failed paste never loses text).
 Microphone capture (`vox-audio`) is a plain function: it yields 16 kHz mono chunks to a sink.
 
 ## The lifecycle is a pure state machine (`vox_core::session`)

@@ -5,6 +5,7 @@
 pub mod engine;
 pub mod error;
 pub mod history;
+pub mod hotkey;
 pub mod polish;
 pub mod resample;
 pub mod segmenter;

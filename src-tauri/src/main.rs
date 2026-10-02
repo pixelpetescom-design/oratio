@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, PhysicalPosition, WindowEvent};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_global_shortcut::ShortcutState;
 use vox_core::engine::Engine;
 use vox_core::history::History;
 use vox_core::session::Input;
@@ -70,28 +70,28 @@ fn main() {
                 p.extend(startup_problems);
             }
 
-            // Global hotkeys. Escape is registered by the controller only while recording.
+            // Escape is a normal global hotkey, registered by the controller only while recording.
             let tx = ctl.clone();
-            let toggle = config::toggle_shortcut();
             handle.plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(move |_app, shortcut, event| {
-                        if event.state() != ShortcutState::Pressed {
-                            return;
-                        }
-                        if shortcut == &toggle {
-                            tx.send(Input::Toggle);
-                        } else if shortcut == &config::escape_shortcut() {
+                        if event.state() == ShortcutState::Pressed && shortcut == &config::escape_shortcut() {
                             tx.send(Input::Escape);
                         }
                     })
                     .build(),
             )?;
-            if let Err(e) = handle.global_shortcut().register(config::toggle_shortcut()) {
-                if let Ok(mut p) = ctl.shared.problems.lock() {
-                    p.push(format!("Hotkey {} is unavailable ({e}). Use the button in the window.", config::TOGGLE_LABEL));
-                }
-            }
+
+            // Start/stop is the Ctrl+Win chord, which has to be watched for rather than registered.
+            let (on_chord, on_failure) = (ctl.clone(), ctl.clone());
+            vox_keys::spawn(
+                move || on_chord.send(Input::Toggle),
+                move |msg| {
+                    if let Ok(mut p) = on_failure.shared.problems.lock() {
+                        p.push(format!("{msg}. Use the Start button in this window."));
+                    }
+                },
+            );
             app.manage(ctl);
 
             // Overlay: a click-through pill at the top centre of the primary screen.

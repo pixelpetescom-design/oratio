@@ -235,6 +235,8 @@ impl Controller {
                 }
                 let mut pasted = false;
                 if copied && self.shared.auto_paste.load(Ordering::Relaxed) {
+                    // Still holding Ctrl+Win would turn the paste into Win+V (clipboard history).
+                    vox_keys::wait_for_chord_release(Duration::from_millis(1500));
                     std::thread::sleep(Duration::from_millis(PASTE_DELAY_MS));
                     match vox_paste::paste_from_clipboard() {
                         Ok(()) => pasted = true,
