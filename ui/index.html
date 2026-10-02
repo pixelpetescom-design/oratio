@@ -9,6 +9,7 @@
     main { display: flex; flex-direction: column; height: 100vh; padding: 16px; gap: 12px; }
     header { display: flex; align-items: center; gap: 10px; }
     header h1 { font-size: 16px; margin: 0; flex: 1; }
+    .wave { width: 100%; height: 64px; flex: none; }
     #problems { display: none; border: 1px solid var(--bad); background: rgba(248, 113, 113, 0.10); border-radius: 8px; padding: 8px 12px; white-space: pre-wrap; font-size: 13px; }
     #live { min-height: 3.2em; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 10px 12px; color: var(--muted); }
     #list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
@@ -43,6 +44,7 @@
   </header>
   <label class="opt"><input type="checkbox" id="enabled" checked> Dictation on</label>
   <label class="opt"><input type="checkbox" id="autopaste"> Type into the active app when I stop</label>
+  <canvas id="wave" class="wave"></canvas>
   <div id="problems"></div>
   <div id="live">Press <kbd id="hotkey">…</kbd> to start dictating. Press it again to stop; the text is copied to your clipboard.</div>
   <button id="clear" class="danger" disabled>Clear all text</button>
@@ -56,6 +58,7 @@
   <div id="list"></div>
   <footer>While recording: <kbd>Esc</kbd> starts a cancel countdown, <kbd>Esc</kbd> again resumes. Everything stays on this computer.</footer>
 </main>
+<script src="wave.js"></script>
 <script src="main.js"></script>
 </body>
 </html>

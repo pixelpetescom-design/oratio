@@ -2,6 +2,8 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const $ = (id) => document.getElementById(id);
+const wave = Wave.create($("wave"));
+const WAVE_MODES = { recording: "listening", finalizing: "thinking", cancel_pending: "cancel" };
 const LABELS = {
   loading: "Loading speech model…",
   unavailable: "Unavailable",
@@ -17,6 +19,7 @@ let liveText = "";
 
 function renderState(kind, remainingMs) {
   phase = kind;
+  wave.setMode(WAVE_MODES[kind] ?? "idle");
   $("dot").className = `dot ${kind}`;
   $("status").textContent = kind === "cancel_pending" ? `Cancelling in ${Math.ceil((remainingMs ?? 0) / 1000)}s — Esc to resume` : LABELS[kind] ?? kind;
   $("toggle").textContent = kind === "recording" || kind === "cancel_pending" ? "Stop" : "Start";
@@ -182,6 +185,7 @@ listen("state", ({ payload }) => {
   }
   if (payload.kind === "recording" && phase !== "cancel_pending") { liveText = ""; }
 });
+listen("level", ({ payload }) => wave.setLevel(payload));
 listen("segment", ({ payload }) => { liveText += (liveText ? " " : "") + payload; $("live").textContent = liveText; });
 listen("finished", ({ payload }) => {
   $("live").textContent = payload.text ? (payload.pasted ? "Typed: " : payload.copied ? "Copied to clipboard: " : "") + payload.text + (payload.elapsed_ms != null ? `  (${(payload.elapsed_ms / 1000).toFixed(1)} s)` : "") : "No speech detected.";
