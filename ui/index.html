@@ -8,65 +8,92 @@
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<main>
-  <header class="top">
-    <div class="brand"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1ed6ff"/><stop offset=".55" stop-color="#0a6cf0"/><stop offset="1" stop-color="#9664ff"/></linearGradient></defs><circle cx="12" cy="12" r="8" fill="none" stroke="rgba(120,150,200,.28)" stroke-width="3.2"/><circle cx="12" cy="12" r="8" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-dasharray="40.8 50.3" transform="rotate(-90 12 12)"/><circle cx="4.5" cy="9.3" r="1.9" fill="#fff" stroke="#1478ff" stroke-width="1"/><circle cx="12" cy="12" r="2" fill="#19b4ff"/></svg>Oratio</div>
-    <div class="status"><span id="dot" class="dot loading"></span><span id="status">Loading speech model…</span></div>
-  </header>
+<div class="shell">
+  <nav class="rail" aria-label="Sections">
+    <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1ed6ff"/><stop offset=".55" stop-color="#0a6cf0"/><stop offset="1" stop-color="#9664ff"/></linearGradient></defs><circle cx="12" cy="12" r="8" fill="none" stroke="rgba(120,150,200,.28)" stroke-width="3.2"/><circle cx="12" cy="12" r="8" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-dasharray="40.8 50.3" transform="rotate(-90 12 12)"/><circle cx="4.5" cy="9.3" r="1.9" fill="#fff" stroke="#1478ff" stroke-width="1"/><circle cx="12" cy="12" r="2" fill="#19b4ff"/></svg>
+    <button class="nav-btn" data-view="dictate" data-tip="Dictate" aria-label="Dictate"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+    <button class="nav-btn" data-view="history" id="navHistory" data-tip="History" aria-label="History"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4M12 8v4.5l3 2"/></svg></button>
+    <button class="nav-btn" data-view="words" data-tip="Words &amp; corrections" aria-label="Words and corrections"><svg viewBox="0 0 24 24"><path d="M4 18L9.5 5 15 18M6.2 13.5h6.6M17 9h3.5M17 13h3.5M17 17h3.5"/></svg></button>
+    <span class="rail-spacer"></span>
+    <button class="nav-btn" data-view="settings" data-tip="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg></button>
+  </nav>
 
-  <section class="card hero">
-    <div class="orb-wrap">
-      <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
-        <defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#19d0ff"/><stop offset="1" stop-color="#8b5cff"/></linearGradient></defs>
-        <circle class="track" cx="60" cy="60" r="54"/>
-        <circle id="arc" class="arc" cx="60" cy="60" r="54"/>
-      </svg>
-      <button id="toggle" class="orb idle" aria-label="Start or stop dictating" disabled></button>
-    </div>
-    <canvas id="wave"></canvas>
-    <div id="live" class="live">Press <kbd id="hotkey">Ctrl + Win</kbd> to start dictating. Press it again to stop; the text is typed where your cursor is.</div>
-  </section>
+  <main>
+    <header class="top">
+      <div class="brand">Oratio</div>
+      <div class="status"><span id="dot" class="dot loading"></span><span id="status">Loading speech model…</span></div>
+    </header>
+    <div id="problems"></div>
 
-  <div id="problems"></div>
+    <!-- Dictate -->
+    <section id="view-dictate" class="view">
+      <div class="card hero">
+        <div class="orb-wrap">
+          <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+            <defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#19d0ff"/><stop offset="1" stop-color="#8b5cff"/></linearGradient></defs>
+            <circle class="track" cx="60" cy="60" r="54"/>
+            <circle id="arc" class="arc" cx="60" cy="60" r="54"/>
+          </svg>
+          <button id="toggle" class="orb idle" aria-label="Start or stop dictating" disabled></button>
+        </div>
+        <canvas id="wave"></canvas>
+        <div id="live" class="live">Press <kbd id="hotkey">Ctrl + Win</kbd> to start dictating. Press it again to stop; the text is typed where your cursor is.</div>
+      </div>
+      <div class="card stats">
+        <div class="gauge" id="gauge">
+          <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="track" cx="60" cy="60" r="50"/><circle id="gaugeArc" class="arc" cx="60" cy="60" r="50"/></svg>
+          <div class="gauge-text"><b id="speed">–</b><span>last speed</span></div>
+        </div>
+        <div class="bars-wrap">
+          <h2>Recent speed</h2>
+          <div id="bars" class="bars" aria-label="Seconds from stop to text for recent dictations"></div>
+        </div>
+      </div>
+    </section>
 
-  <section class="card options">
-    <label class="switch"><input type="checkbox" id="enabled" checked><span class="track"><span class="knob"></span></span><span class="text">Dictation on</span></label>
-    <label class="switch"><input type="checkbox" id="autopaste" checked><span class="track"><span class="knob"></span></span><span class="text">Type into the active app<span class="sub">Otherwise just copy to the clipboard</span></span></label>
-    <label class="switch"><input type="checkbox" id="autostart"><span class="track"><span class="knob"></span></span><span class="text">Start when Windows starts<span class="sub">Runs quietly in the tray, always ready</span></span></label>
-    <label class="switch"><input type="checkbox" id="glass" checked><span class="track"><span class="knob"></span></span><span class="text">Frosted glass<span class="sub">See-through window; turn off if dragging feels laggy</span></span></label>
-  </section>
+    <!-- History -->
+    <section id="view-history" class="view" hidden>
+      <div class="history-head">
+        <h2>History</h2>
+        <button id="clear" class="btn outline danger small" disabled>Clear all</button>
+      </div>
+      <div id="confirm" class="card confirm" hidden>
+        <div id="confirmText">Delete everything?</div>
+        <div class="row"><button id="confirmNo" class="btn outline small">Cancel</button><button id="confirmYes" class="btn danger solid small">Delete all</button></div>
+      </div>
+      <div id="list"></div>
+    </section>
 
-  <section class="card stats">
-    <div class="gauge" id="gauge">
-      <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="track" cx="60" cy="60" r="50"/><circle id="gaugeArc" class="arc" cx="60" cy="60" r="50"/></svg>
-      <div class="gauge-text"><b id="speed">–</b><span>last speed</span></div>
-    </div>
-    <div class="bars-wrap">
-      <h2>Recent speed</h2>
-      <div id="bars" class="bars" aria-label="Seconds from stop to text for recent dictations"></div>
-    </div>
-  </section>
+    <!-- Words & corrections -->
+    <section id="view-words" class="view" hidden>
+      <div class="card">
+        <p class="hint">Words you add are given to the speech engine as hints. Edit any transcript in History and Oratio remembers your corrections.</p>
+        <form id="wordform"><span class="field-icon">Aa</span><input id="wordinput" placeholder="Add a name or term, e.g. Postiz" autocomplete="off"><button class="btn primary small">Add</button></form>
+        <h2 class="sub-h">Words</h2>
+        <div id="words" class="chips"></div>
+        <h2 class="sub-h">Corrections</h2>
+        <div id="fixes" class="chips"></div>
+      </div>
+    </section>
 
-  <div class="history-head">
-    <h2>History</h2>
-    <button id="clear" class="btn outline danger small" disabled>Clear all</button>
-  </div>
-  <div id="confirm" class="card confirm" hidden>
-    <div id="confirmText">Delete everything?</div>
-    <div class="row"><button id="confirmNo" class="btn outline small">Cancel</button><button id="confirmYes" class="btn danger solid small">Delete all</button></div>
-  </div>
-  <div id="list"></div>
-
-  <details id="learned" class="card">
-    <summary>Learned words &amp; corrections</summary>
-    <p class="hint">Words you add are given to the speech engine as hints. Edit any transcript above and Oratio remembers your corrections.</p>
-    <form id="wordform"><span class="field-icon">Aa</span><input id="wordinput" placeholder="Add a name or term, e.g. Postiz" autocomplete="off"><button class="btn primary small">Add</button></form>
-    <div id="words" class="chips"></div>
-    <div id="fixes" class="chips"></div>
-  </details>
-
-  <footer>While recording: <kbd>Esc</kbd> starts a cancel countdown, <kbd>Esc</kbd> again resumes. Everything stays on this computer.</footer>
-</main>
+    <!-- Settings -->
+    <section id="view-settings" class="view" hidden>
+      <div class="card options">
+        <label class="switch"><input type="checkbox" id="enabled" checked><span class="track"><span class="knob"></span></span><span class="text">Dictation on<span class="sub">Off = no microphone and no hotkey</span></span></label>
+        <label class="switch"><input type="checkbox" id="autopaste" checked><span class="track"><span class="knob"></span></span><span class="text">Type into the active app<span class="sub">Otherwise just copy to the clipboard</span></span></label>
+        <label class="switch"><input type="checkbox" id="autostart"><span class="track"><span class="knob"></span></span><span class="text">Start with Windows<span class="sub">Runs quietly in the tray, always ready</span></span></label>
+      </div>
+      <div class="card window-opts">
+        <div class="opt-title">Window <span class="sub">See-through styles need Windows; Soft is the lightest blur</span></div>
+        <div class="seg" id="glassStyle" role="group" aria-label="Window style">
+          <button data-style="solid">Solid</button><button data-style="clear">Clear</button><button data-style="soft">Soft</button><button data-style="frosted">Frosted</button>
+        </div>
+        <div class="slider-row"><span>Tint</span><input type="range" id="tint" min="10" max="95" value="55" aria-label="Tint darkness"><b id="tintValue">55%</b></div>
+      </div>
+      <footer>While recording: <kbd>Esc</kbd> starts a cancel countdown, <kbd>Esc</kbd> again resumes. Everything stays on this computer.</footer>
+    </section>
+  </main>
+</div>
 <div id="toasts"></div>
 <script src="wave.js"></script>
 <script src="main.js"></script>

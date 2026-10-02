@@ -125,13 +125,20 @@ pub fn edit_entry(
     learn_from_edit(history.as_ref(), lexicon.as_ref(), id, &text).map_err(|e| e.to_string())
 }
 
-/// Turns the frosted-glass window effect (Windows acrylic) on or off. Returns whether it is
-/// actually showing, so the UI can fall back to a solid background where it isn't supported.
+/// Sets the window style: "solid", "clear" (see-through, no blur), "soft" (Windows blur) or "frosted"
+/// (Windows acrylic). Returns whether the window should be drawn see-through, so the UI falls back
+/// to a solid background where that isn't supported.
 #[tauri::command]
-pub fn set_glass(app: AppHandle, enabled: bool) -> bool {
+pub fn set_glass(app: AppHandle, style: String) -> bool {
     let Some(window) = app.get_webview_window("main") else { return false };
-    let effects = enabled.then(|| EffectsBuilder::new().effect(Effect::Acrylic).color(Color(10, 15, 25, 120)).build());
-    window.set_effects(effects).is_ok() && enabled && cfg!(windows)
+    // The native layer only supplies the blur; the darkness is controlled by the page's own tint.
+    let native = |effect| Some(EffectsBuilder::new().effect(effect).color(Color(8, 12, 22, 40)).build());
+    let effects = match style.as_str() {
+        "frosted" => native(Effect::Acrylic),
+        "soft" => native(Effect::Blur),
+        _ => None,
+    };
+    window.set_effects(effects).is_ok() && style != "solid" && cfg!(windows)
 }
 
 /// Whether Oratio is set to launch when the user signs in (read from the OS, the source of truth).

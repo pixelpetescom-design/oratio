@@ -16,10 +16,10 @@
         "label": "main",
         "title": "Oratio",
         "url": "index.html",
-        "width": 540,
-        "height": 780,
-        "minWidth": 420,
-        "minHeight": 560,
+        "width": 400,
+        "height": 470,
+        "minWidth": 340,
+        "minHeight": 380,
         "transparent": true,
         "windowEffects": {
           "effects": [
@@ -32,8 +32,8 @@
       {
         "label": "overlay",
         "url": "overlay.html",
-        "width": 300,
-        "height": 170,
+        "width": 250,
+        "height": 124,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,

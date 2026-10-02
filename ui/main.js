@@ -29,6 +29,22 @@ function icon(name) {
   return t.content.firstElementChild;
 }
 
+// ---- navigation: icon rail, one view at a time ---------------------------------------------
+
+function showView(name) {
+  document.querySelectorAll(".view").forEach((v) => (v.hidden = v.id !== `view-${name}`));
+  document.querySelectorAll(".nav-btn").forEach((b) => {
+    const on = b.dataset.view === name;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-current", on ? "page" : "false");
+  });
+  if (name === "history") $("navHistory").classList.remove("badge");
+  try { localStorage.setItem("view", name); } catch { /* storage unavailable */ }
+  window.dispatchEvent(new Event("resize")); // the wave canvas needs a re-measure once visible
+}
+document.querySelectorAll(".nav-btn").forEach((b) => (b.onclick = () => showView(b.dataset.view)));
+showView(["dictate", "history", "words", "settings"].includes(localStorage.getItem("view")) ? localStorage.getItem("view") : "dictate");
+
 // ---- small interaction helpers -------------------------------------------------------------
 
 function toast(message, kind = "ok") {
@@ -103,6 +119,8 @@ function applyStoredEnabled(kind) {
 
 function renderProblems(list) {
   const el = $("problems");
+  el.title = "Click to expand";
+  el.onclick = () => el.classList.toggle("expanded");
   el.style.display = list.length ? "block" : "none";
   el.textContent = list.join("\n\n");
 }
@@ -291,18 +309,37 @@ $("autopaste").onchange = () => {
   invoke("set_auto_paste", { enabled: $("autopaste").checked });
 };
 
-async function applyGlass(enabled) {
-  let showing = false;
-  try { showing = await invoke("set_glass", { enabled }); } catch { /* unsupported: stay solid */ }
-  document.body.classList.toggle("glass", showing);
+// Window style (solid / clear / soft / frosted) and tint. The old on/off "glass" setting maps to soft/solid.
+const STYLES = ["solid", "clear", "soft", "frosted"];
+let glassStyle = localStorage.getItem("glassStyle") ?? (localStorage.getItem("glass") === "false" ? "solid" : "soft");
+if (!STYLES.includes(glassStyle)) glassStyle = "soft";
+let tint = Number(localStorage.getItem("tint") ?? 55);
+
+function paintTint() {
+  $("tint").value = String(tint);
+  $("tint").style.setProperty("--fill", `${((tint - 10) / 85) * 100}%`);
+  $("tintValue").textContent = `${tint}%`;
+  document.body.style.setProperty("--tint", String(tint / 100));
 }
-const storedGlass = localStorage.getItem("glass");
-$("glass").checked = storedGlass === null ? true : storedGlass === "true";
-applyGlass($("glass").checked);
-$("glass").onchange = () => {
-  localStorage.setItem("glass", String($("glass").checked));
-  applyGlass($("glass").checked);
+async function applyGlass() {
+  document.querySelectorAll("#glassStyle button").forEach((b) => b.classList.toggle("active", b.dataset.style === glassStyle));
+  let seeThrough = false;
+  try { seeThrough = await invoke("set_glass", { style: glassStyle }); } catch { /* unsupported: stay solid */ }
+  document.body.classList.toggle("glass", seeThrough);
+  $("tint").disabled = !seeThrough;
+}
+document.querySelectorAll("#glassStyle button").forEach((b) => (b.onclick = () => {
+  glassStyle = b.dataset.style;
+  localStorage.setItem("glassStyle", glassStyle);
+  applyGlass();
+}));
+$("tint").oninput = () => {
+  tint = Number($("tint").value);
+  localStorage.setItem("tint", String(tint));
+  paintTint();
 };
+paintTint();
+applyGlass();
 
 // Launch at sign-in: the OS is the source of truth, so ask it rather than remembering locally.
 invoke("get_autostart").then((on) => ($("autostart").checked = on)).catch(() => ($("autostart").disabled = true));
@@ -345,6 +382,7 @@ listen("finished", ({ payload }) => {
     renderStats();
   }
   liveText = "";
+  if (payload.text && !$("navHistory").classList.contains("active")) $("navHistory").classList.add("badge");
 });
 listen("problem", () => invoke("get_snapshot").then((s) => renderProblems(s.problems)));
 listen("history", renderHistory);
