@@ -101,6 +101,10 @@ impl History for SqliteHistory {
         Ok(())
     }
 
+    fn clear(&self) -> Result<usize, CoreError> {
+        self.conn()?.execute("DELETE FROM recordings WHERE status != 'recording'", []).map_err(err)
+    }
+
     fn list(&self, limit: u32) -> Result<Vec<Entry>, CoreError> {
         let c = self.conn()?;
         let mut stmt = c
@@ -176,6 +180,26 @@ mod tests {
         assert!(h.list(10).unwrap().is_empty());
         let n: i64 = h.conn().unwrap().query_row("SELECT COUNT(*) FROM segments", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn clear_removes_finished_entries_but_not_the_one_being_recorded() {
+        let h = SqliteHistory::open_in_memory().unwrap();
+        let done = h.begin(1).unwrap();
+        h.append_segment(done, "old").unwrap();
+        h.complete(done, "Old.").unwrap();
+        let failed = h.begin(2).unwrap();
+        h.fail(failed, "x").unwrap();
+        let live = h.begin(3).unwrap();
+        h.append_segment(live, "still talking").unwrap();
+        assert_eq!(h.clear().unwrap(), 2);
+        let rows = h.list(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, live);
+        h.append_segment(live, "and more").unwrap(); // the live recording keeps working
+        assert_eq!(h.list(10).unwrap()[0].segments.len(), 2);
+        let n: i64 = h.conn().unwrap().query_row("SELECT COUNT(*) FROM segments WHERE recording_id != ?1", [live], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0, "segments of cleared entries are gone");
     }
 
     #[test]

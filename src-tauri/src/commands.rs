@@ -68,3 +68,8 @@ pub fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
 pub fn delete_entry(history: State<'_, Arc<dyn History>>, id: i64) -> Result<(), String> {
     history.delete(id).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn clear_history(history: State<'_, Arc<dyn History>>) -> Result<usize, String> {
+    history.clear().map_err(|e| e.to_string())
+}

@@ -19,6 +19,9 @@
     .entry.failed { border-color: rgba(250, 204, 21, 0.45); }
     .empty { color: var(--muted); text-align: center; margin-top: 32px; }
     .opt { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+    .danger { width: 100%; padding: 12px; font-size: 15px; font-weight: 600; border-color: rgba(248, 113, 113, 0.5); color: var(--bad); }
+    .danger:hover:not(:disabled) { background: rgba(248, 113, 113, 0.14); }
+    .danger.armed { background: var(--bad); color: #1a0c0c; }
     footer { color: var(--muted); font-size: 12px; }
   </style>
 </head>
@@ -32,6 +35,7 @@
   <label class="opt"><input type="checkbox" id="autopaste"> Type into the active app when I stop</label>
   <div id="problems"></div>
   <div id="live">Press <kbd id="hotkey">…</kbd> to start dictating. Press it again to stop; the text is copied to your clipboard.</div>
+  <button id="clear" class="danger" disabled>Clear all text</button>
   <div id="list"></div>
   <footer>While recording: <kbd>Esc</kbd> starts a cancel countdown, <kbd>Esc</kbd> again resumes. Everything stays on this computer.</footer>
 </main>

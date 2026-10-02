@@ -28,6 +28,7 @@ fn main() {
             commands::list_history,
             commands::copy_text,
             commands::delete_entry,
+            commands::clear_history,
         ])
         .on_window_event(|window, event| {
             // Closing the main window keeps dictation alive in the tray.

@@ -38,6 +38,7 @@ async function renderHistory() {
   try { entries = await invoke("list_history"); } catch (e) { renderProblems([String(e)]); return; }
   const list = $("list");
   list.replaceChildren();
+  $("clear").disabled = entries.length === 0;
   if (!entries.length) {
     const p = document.createElement("div");
     p.className = "empty";
@@ -69,6 +70,27 @@ async function renderHistory() {
 }
 
 $("toggle").onclick = () => invoke("toggle_recording");
+
+// Clearing is permanent, so the first click arms the button and the second one confirms.
+let disarm = null;
+function resetClear() {
+  clearTimeout(disarm);
+  $("clear").classList.remove("armed");
+  $("clear").textContent = "Clear all text";
+}
+$("clear").onclick = async () => {
+  if (!$("clear").classList.contains("armed")) {
+    $("clear").classList.add("armed");
+    $("clear").textContent = "Click again to delete everything";
+    disarm = setTimeout(resetClear, 3000);
+    return;
+  }
+  resetClear();
+  try { await invoke("clear_history"); } catch (e) { renderProblems([String(e)]); }
+  liveText = "";
+  $("live").textContent = "Cleared.";
+  renderHistory();
+};
 
 // The preference lives in the UI's storage and is pushed to the backend on load and on change.
 const stored = localStorage.getItem("autopaste");

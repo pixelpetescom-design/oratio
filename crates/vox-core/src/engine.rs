@@ -237,6 +237,12 @@ mod tests {
             self.rows.lock().unwrap().retain(|e| e.id != id);
             Ok(())
         }
+        fn clear(&self) -> Result<usize, CoreError> {
+            let mut r = self.rows.lock().unwrap();
+            let before = r.len();
+            r.retain(|e| e.status == Status::Recording);
+            Ok(before - r.len())
+        }
         fn list(&self, _: u32) -> Result<Vec<Entry>, CoreError> {
             Ok(self.rows.lock().unwrap().clone())
         }
