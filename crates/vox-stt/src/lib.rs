@@ -50,8 +50,8 @@ impl Transcriber for WhisperTranscriber {
         self.state.full(p, audio).map_err(stt_err)?;
 
         let mut text = String::new();
-        for i in 0..self.state.full_n_segments().map_err(stt_err)? {
-            let seg = self.state.full_get_segment_text(i).map_err(stt_err)?;
+        for segment in self.state.as_iter() {
+            let seg = segment.to_str_lossy().map_err(stt_err)?;
             let seg = seg.trim();
             // Whisper marks non-speech as [BLANK_AUDIO], (music), etc.
             let is_tag = (seg.starts_with('[') && seg.ends_with(']')) || (seg.starts_with('(') && seg.ends_with(')'));

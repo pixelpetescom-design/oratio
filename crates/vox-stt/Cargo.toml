@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 vox-core = { path = "../vox-core" }
-whisper-rs = "0.14"
+whisper-rs = "0.16"
 
 [lints]
 workspace = true
