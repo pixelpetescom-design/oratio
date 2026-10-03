@@ -6,6 +6,7 @@ mod controller;
 mod paths;
 
 use std::sync::mpsc::channel;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
@@ -14,6 +15,7 @@ use tauri_plugin_global_shortcut::ShortcutState;
 use oratio_core::engine::Engine;
 use oratio_core::history::History;
 use oratio_core::lexicon::Lexicon;
+use oratio_core::search::SearchKey;
 use oratio_core::session::{Input, State};
 use oratio_core::stt::Transcriber;
 use oratio_store::SqliteStore;
@@ -22,6 +24,7 @@ use oratio_stt::WhisperTranscriber;
 fn main() {
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
         // Launched at sign-in with --hidden, Oratio starts quietly in the tray.
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
         .invoke_handler(tauri::generate_handler![
@@ -30,6 +33,7 @@ fn main() {
             commands::set_auto_paste,
             commands::set_enabled,
             commands::set_glass,
+            commands::set_search,
             commands::get_autostart,
             commands::set_autostart,
             commands::list_history,
@@ -99,12 +103,20 @@ fn main() {
             )?;
 
             // Start/stop is the Ctrl+Win chord, which has to be watched for rather than registered.
-            let (on_chord, on_failure) = (ctl.clone(), ctl.clone());
+            let (watch_key, on_chord, on_failure) = (ctl.clone(), ctl.clone(), ctl.clone());
             oratio_keys::spawn(
                 move || {
+                    watch_key.shared.search_enabled.load(Ordering::Relaxed).then(|| {
+                        if watch_key.shared.search_key.load(Ordering::Relaxed) == 1 { SearchKey::Alt } else { SearchKey::Shift }
+                    })
+                },
+                move |search_held| {
                     // Leave Ctrl+Win to Windows unless dictation is actually available.
                     let ready = on_chord.shared.state.lock().map(|s| matches!(*s, State::Idle | State::Recording | State::CancelPending { .. })).unwrap_or(false);
                     if ready {
+                        if search_held {
+                            on_chord.shared.search_pending.store(true, Ordering::Relaxed);
+                        }
                         on_chord.send(Input::Toggle);
                     }
                     ready

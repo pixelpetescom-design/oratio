@@ -135,3 +135,7 @@ input[type="range"] { flex: 1; -webkit-appearance: none; appearance: none; heigh
 input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 4px solid #1478ff; box-shadow: 0 0 10px rgba(30, 140, 255, 0.7); cursor: pointer; transition: transform 0.12s var(--ease); }
 input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.2); }
 input[type="range"]:focus-visible { box-shadow: 0 0 0 3px rgba(25, 208, 255, 0.25); }
+
+.switch-group { display: flex; flex-direction: column; gap: 8px; }
+.seg-2 { grid-template-columns: repeat(2, 1fr); margin-left: 47px; max-width: 180px; }
+.switch-group.off .seg { opacity: 0.4; pointer-events: none; }

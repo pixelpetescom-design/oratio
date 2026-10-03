@@ -6,15 +6,17 @@
 use crate::config::{escape_shortcut, CANCEL_GRACE_MS, CONTINUATION_WINDOW_MS, OVERLAY_LINGER_MS, PASTE_DELAY_MS, TAIL_GRACE_MS};
 use serde::Serialize;
 use std::sync::mpsc::{channel, Sender};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
+use tauri_plugin_opener::OpenerExt;
 use oratio_audio::Capture;
 use oratio_core::engine::{Command, Engine, Event};
 use oratio_core::polish::continuation;
+use oratio_core::search::{google_url, query};
 use oratio_core::session::{step, Effect, Input, State};
 
 pub enum Msg {
@@ -28,6 +30,12 @@ pub struct Shared {
     pub problems: Mutex<Vec<String>>,
     /// Press Ctrl+V in the focused app after copying the result.
     pub auto_paste: AtomicBool,
+    /// Voice search: hold the search key with Ctrl+Win to look the words up on Google instead of typing them.
+    pub search_enabled: AtomicBool,
+    /// 0 = Shift, 1 = Alt.
+    pub search_key: AtomicU8,
+    /// Set when the search key was held at the start or stop press of the current dictation.
+    pub search_pending: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -54,6 +62,8 @@ struct Finished {
     text: String,
     copied: bool,
     pasted: bool,
+    /// The text was sent to a Google search instead of being typed.
+    searched: bool,
     /// From pressing Stop until the text was ready (before pasting).
     elapsed_ms: Option<u64>,
 }
@@ -78,7 +88,11 @@ struct Controller {
 /// channel the engine was spawned with.
 pub fn spawn(app: AppHandle, engine: Engine, engine_events: std::sync::mpsc::Receiver<Event>) -> Handle {
     let (tx, rx) = channel::<Msg>();
-    let shared = Arc::new(Shared { state: Mutex::new(State::Loading), problems: Mutex::new(vec![]), auto_paste: AtomicBool::new(true) });
+    let shared = Arc::new(Shared { state: Mutex::new(State::Loading), problems: Mutex::new(vec![]), auto_paste: AtomicBool::new(true),
+        search_enabled: AtomicBool::new(false),
+        search_key: AtomicU8::new(0),
+        search_pending: AtomicBool::new(false),
+    });
 
     let forward = tx.clone();
     std::thread::spawn(move || {
@@ -156,10 +170,14 @@ impl Controller {
                 self.engine.send(Command::Finish);
             }
             Effect::Discard => {
+                self.shared.search_pending.store(false, Ordering::Relaxed);
                 self.capture = None;
                 self.engine.send(Command::Discard);
             }
-            Effect::Abort => self.capture = None,
+            Effect::Abort => {
+                self.shared.search_pending.store(false, Ordering::Relaxed);
+                self.capture = None;
+            }
         }
     }
 
@@ -239,30 +257,42 @@ impl Controller {
             }
             Event::Finished { text, .. } => {
                 let elapsed_ms = self.stopped_at.take().map(|t| t.elapsed().as_millis() as u64);
-                // Clipboard first: the text is the product, everything else is bookkeeping.
-                // When typing into an app straight after a previous dictation, lead with a space so the
-                // two don't run together; a manual paste stays clean.
-                let auto_paste = self.shared.auto_paste.load(Ordering::Relaxed);
-                let continuing = auto_paste && self.last_paste.is_some_and(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS));
-                let clip = if continuing { continuation(&text) } else { text.clone() };
-                let copied = !text.is_empty() && self.app.clipboard().write_text(clip).is_ok();
-                if !text.is_empty() && !copied {
-                    self.problem("Could not write to the clipboard; the text is saved in history.".into());
-                }
+                let search = self.shared.search_pending.swap(false, Ordering::Relaxed)
+                    && self.shared.search_enabled.load(Ordering::Relaxed)
+                    && !text.is_empty();
+                let mut searched = false;
+                let mut copied = false;
                 let mut pasted = false;
-                if copied && auto_paste {
-                    // Still holding Ctrl+Win would turn the paste into Win+V (clipboard history).
-                    oratio_keys::wait_for_chord_release(Duration::from_millis(1500));
-                    std::thread::sleep(Duration::from_millis(PASTE_DELAY_MS));
-                    match oratio_paste::paste_from_clipboard() {
-                        Ok(()) => {
-                            pasted = true;
-                            self.last_paste = Some(Instant::now());
+                if search {
+                    match self.app.opener().open_url(google_url(&query(&text)), None::<&str>) {
+                        Ok(()) => searched = true,
+                        Err(e) => self.problem(format!("Could not open your browser ({e}). The text is saved in history.")),
+                    }
+                } else {
+                    // Clipboard first: the text is the product, everything else is bookkeeping.
+                    // When typing into an app straight after a previous dictation, lead with a space so the
+                    // two don't run together; a manual paste stays clean.
+                    let auto_paste = self.shared.auto_paste.load(Ordering::Relaxed);
+                    let continuing = auto_paste && self.last_paste.is_some_and(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS));
+                    let clip = if continuing { continuation(&text) } else { text.clone() };
+                    copied = !text.is_empty() && self.app.clipboard().write_text(clip).is_ok();
+                    if !text.is_empty() && !copied {
+                        self.problem("Could not write to the clipboard; the text is saved in history.".into());
+                    }
+                    if copied && auto_paste {
+                        // Still holding Ctrl+Win would turn the paste into Win+V (clipboard history).
+                        oratio_keys::wait_for_chord_release(Duration::from_millis(1500));
+                        std::thread::sleep(Duration::from_millis(PASTE_DELAY_MS));
+                        match oratio_paste::paste_from_clipboard() {
+                            Ok(()) => {
+                                pasted = true;
+                                self.last_paste = Some(Instant::now());
+                            }
+                            Err(e) => self.problem(format!("Could not type into the active app ({e}). The text is on your clipboard.")),
                         }
-                        Err(e) => self.problem(format!("Could not type into the active app ({e}). The text is on your clipboard.")),
                     }
                 }
-                let _ = self.app.emit("finished", Finished { text, copied, pasted, elapsed_ms });
+                let _ = self.app.emit("finished", Finished { text, copied, pasted, searched, elapsed_ms });
                 let _ = self.app.emit("history", ());
                 self.apply(Input::Finished);
                 self.hide_overlay_later();

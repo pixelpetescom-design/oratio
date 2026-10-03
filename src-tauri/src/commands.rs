@@ -50,6 +50,13 @@ pub fn set_enabled(ctl: State<'_, Handle>, enabled: bool) {
     ctl.send(if enabled { Input::Enable } else { Input::Disable });
 }
 
+/// Voice search on/off and which key to hold ("shift" or "alt").
+#[tauri::command]
+pub fn set_search(ctl: State<'_, Handle>, enabled: bool, key: String) {
+    ctl.shared.search_enabled.store(enabled, Ordering::Relaxed);
+    ctl.shared.search_key.store(u8::from(key == "alt"), Ordering::Relaxed);
+}
+
 #[tauri::command]
 pub fn toggle_recording(ctl: State<'_, Handle>) {
     ctl.send(Input::Toggle);

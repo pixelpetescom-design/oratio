@@ -5,6 +5,7 @@ use device_query::{DeviceQuery, DeviceState, Keycode};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{Duration, Instant};
 use oratio_core::hotkey::ChordDetector;
+use oratio_core::search::SearchKey;
 
 const POLL: Duration = Duration::from_millis(8);
 const HOLD_MS: u64 = 80;
@@ -17,10 +18,23 @@ fn is_win(k: &Keycode) -> bool {
     matches!(k, Keycode::LMeta | Keycode::RMeta)
 }
 
+fn is_search_key(k: &Keycode, key: SearchKey) -> bool {
+    match key {
+        SearchKey::Shift => matches!(k, Keycode::LShift | Keycode::RShift),
+        SearchKey::Alt => matches!(k, Keycode::LAlt | Keycode::RAlt),
+    }
+}
+
 /// Starts watching on a background thread. `on_chord` runs each time Ctrl+Win is
-/// pressed and returns whether the app claimed it (when it didn't, e.g. dictation is off,
-/// the keys are left entirely to Windows); `on_failure` runs once if the watcher dies, so the app can say so.
-pub fn spawn(on_chord: impl Fn() -> bool + Send + 'static, on_failure: impl FnOnce(String) + Send + 'static) {
+/// pressed, told whether the voice-search key was also held, and returns whether the app claimed it
+/// (when it didn't, e.g. dictation is off, the keys are left entirely to Windows). `search_key` says
+/// which key currently means "search" (None = voice search off, so extra keys cancel the chord as
+/// usual). `on_failure` runs once if the watcher dies, so the app can say so.
+pub fn spawn(
+    search_key: impl Fn() -> Option<SearchKey> + Send + 'static,
+    on_chord: impl Fn(bool) -> bool + Send + 'static,
+    on_failure: impl FnOnce(String) + Send + 'static,
+) {
     let started = std::thread::Builder::new().name("oratio-keys".into()).spawn(move || {
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             let keyboard = DeviceState::new();
@@ -30,8 +44,11 @@ pub fn spawn(on_chord: impl Fn() -> bool + Send + 'static, on_failure: impl FnOn
                 std::thread::sleep(POLL);
                 let keys = keyboard.get_keys();
                 let (ctrl, win) = (keys.iter().any(is_ctrl), keys.iter().any(is_win));
-                let other = keys.iter().any(|k| !is_ctrl(k) && !is_win(k));
-                if detector.update(clock.elapsed().as_millis() as u64, ctrl, win, other) && on_chord() {
+                let search = search_key();
+                let searching = search.is_some_and(|key| keys.iter().any(|k| is_search_key(k, key)));
+                // The search key is allowed alongside the chord; any other key still cancels it.
+                let other = keys.iter().any(|k| !is_ctrl(k) && !is_win(k) && !search.is_some_and(|key| is_search_key(k, key)));
+                if detector.update(clock.elapsed().as_millis() as u64, ctrl, win, other) && on_chord(searching) {
                     suppress_start_menu();
                 }
             }

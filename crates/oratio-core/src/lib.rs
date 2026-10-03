@@ -9,6 +9,7 @@ pub mod hotkey;
 pub mod lexicon;
 pub mod polish;
 pub mod resample;
+pub mod search;
 pub mod segmenter;
 pub mod session;
 pub mod spelling;

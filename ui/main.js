@@ -341,6 +341,28 @@ $("tint").oninput = () => {
 paintTint();
 applyGlass();
 
+// Voice search: hold Shift or Alt with Ctrl + Win to search Google for what you say.
+let searchOn = localStorage.getItem("search") === "on";
+let searchKey = localStorage.getItem("searchKey") === "alt" ? "alt" : "shift";
+function applySearch() {
+  $("search").checked = searchOn;
+  document.querySelector(".switch-group").classList.toggle("off", !searchOn);
+  document.querySelectorAll("#searchKey button").forEach((b) => b.classList.toggle("active", b.dataset.key === searchKey));
+  invoke("set_search", { enabled: searchOn, key: searchKey });
+}
+$("search").onchange = () => {
+  searchOn = $("search").checked;
+  localStorage.setItem("search", searchOn ? "on" : "off");
+  applySearch();
+  if (searchOn) toast(`Hold ${searchKey === "alt" ? "Alt" : "Shift"} + Ctrl + Win to search`);
+};
+document.querySelectorAll("#searchKey button").forEach((b) => (b.onclick = () => {
+  searchKey = b.dataset.key;
+  localStorage.setItem("searchKey", searchKey);
+  applySearch();
+}));
+applySearch();
+
 // Launch at sign-in: the OS is the source of truth, so ask it rather than remembering locally.
 invoke("get_autostart").then((on) => ($("autostart").checked = on)).catch(() => ($("autostart").disabled = true));
 $("autostart").onchange = async () => {
@@ -375,7 +397,7 @@ listen("finished", ({ payload }) => {
   if (!payload.text) setLive("No speech detected.");
   else {
     setLive(payload.text, true);
-    toast(payload.pasted ? "Typed into your app" : payload.copied ? "Copied to clipboard" : "Saved to history", payload.pasted || payload.copied ? "ok" : "bad");
+    toast(payload.searched ? "Searching Google…" : payload.pasted ? "Typed into your app" : payload.copied ? "Copied to clipboard" : "Saved to history", payload.searched || payload.pasted || payload.copied ? "ok" : "bad");
   }
   if (payload.elapsed_ms != null && payload.text) {
     latencies.push(payload.elapsed_ms / 1000);

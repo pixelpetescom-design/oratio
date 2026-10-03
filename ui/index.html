@@ -82,6 +82,10 @@
         <label class="switch"><input type="checkbox" id="enabled" checked><span class="track"><span class="knob"></span></span><span class="text">Dictation on<span class="sub">Off = no microphone and no hotkey</span></span></label>
         <label class="switch"><input type="checkbox" id="autopaste" checked><span class="track"><span class="knob"></span></span><span class="text">Type into the active app<span class="sub">Otherwise just copy to the clipboard</span></span></label>
         <label class="switch"><input type="checkbox" id="autostart"><span class="track"><span class="knob"></span></span><span class="text">Start with Windows<span class="sub">Runs quietly in the tray, always ready</span></span></label>
+        <div class="switch-group">
+          <label class="switch"><input type="checkbox" id="search"><span class="track"><span class="knob"></span></span><span class="text">Voice search<span class="sub">Hold the key below with Ctrl + Win to search Google for what you say, instead of typing it</span></span></label>
+          <div class="seg seg-2" id="searchKey" role="group" aria-label="Search key"><button data-key="shift">Shift</button><button data-key="alt">Alt</button></div>
+        </div>
       </div>
       <div class="card window-opts">
         <div class="opt-title">Window <span class="sub">See-through styles need Windows; Soft is the lightest blur</span></div>
