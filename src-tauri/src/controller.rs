@@ -47,6 +47,10 @@ pub struct Shared {
     pub search_custom: Mutex<String>,
     /// Chosen microphone (None = system default).
     pub mic: Mutex<Option<String>>,
+    /// Where the wave overlay appears.
+    pub overlay_pos: Mutex<oratio_core::overlay::Position>,
+    /// True while the user is dragging the overlay to a new spot (it stays visible and clickable).
+    pub overlay_moving: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -111,6 +115,8 @@ pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, engin
         search_engine: Mutex::new("google".into()),
         search_custom: Mutex::new(String::new()),
         mic: Mutex::new(None),
+        overlay_pos: Mutex::new(oratio_core::overlay::Position::default()),
+        overlay_moving: AtomicBool::new(false),
     });
 
     let forward = tx.clone();
@@ -230,9 +236,12 @@ impl Controller {
 
         if matches!(self.state, State::Recording | State::CancelPending { .. } | State::Finalizing) {
             if let Some(w) = self.app.get_webview_window("overlay") {
+                crate::overlay_window::position(&self.app, &self.shared);
                 let _ = w.show();
                 // Click-through must be applied once the native window exists, i.e. after show().
-                let _ = w.set_ignore_cursor_events(true);
+                if !self.shared.overlay_moving.load(Ordering::Relaxed) {
+                    let _ = w.set_ignore_cursor_events(true);
+                }
             }
         }
     }
@@ -252,7 +261,8 @@ impl Controller {
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(OVERLAY_LINGER_MS));
             let idle = shared.state.lock().map(|s| matches!(*s, State::Idle)).unwrap_or(false);
-            if idle {
+            // Stay put while the user is positioning it.
+            if idle && !shared.overlay_moving.load(Ordering::Relaxed) {
                 if let Some(w) = app.get_webview_window("overlay") {
                     let _ = w.hide();
                 }
@@ -309,10 +319,17 @@ impl Controller {
                         }
                     }
                     if type_it && (copied || (text.is_empty() && enter)) {
-                        // Still holding Ctrl+Win would turn the paste into Win+V (clipboard history).
-                        oratio_keys::wait_for_chord_release(Duration::from_millis(1500));
+                        // Still holding Ctrl+Win would turn the paste into Win+V (clipboard history), so wait for
+                        // the keys to come up rather than typing over them.
+                        let released = oratio_keys::wait_for_modifiers_released(Duration::from_secs(10));
                         std::thread::sleep(Duration::from_millis(PASTE_DELAY_MS));
-                        let typed = if copied { oratio_paste::paste_from_clipboard() } else { Ok(()) };
+                        let typed = if !released {
+                            Err(oratio_core::CoreError::Input("Ctrl, Win, Shift or Alt was still held down".into()))
+                        } else if copied {
+                            oratio_paste::paste_from_clipboard()
+                        } else {
+                            Ok(())
+                        };
                         match typed {
                             Ok(()) => {
                                 pasted = copied;
@@ -337,10 +354,10 @@ impl Controller {
             Event::Scratched => {
                 // "Scratch that": undo the previous dictation's paste, if it is recent enough to be the thing on screen.
                 let recent = self.last_paste.take().is_some_and(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS));
-                let undone = recent && self.shared.auto_paste.load(Ordering::Relaxed) && {
-                    oratio_keys::wait_for_chord_release(Duration::from_millis(1500));
-                    oratio_paste::undo().is_ok()
-                };
+                let undone = recent
+                    && self.shared.auto_paste.load(Ordering::Relaxed)
+                    && oratio_keys::wait_for_modifiers_released(Duration::from_secs(10))
+                    && oratio_paste::undo().is_ok();
                 self.stopped_at = None;
                 self.shared.search_pending.store(false, Ordering::Relaxed);
                 let _ = self.app.emit("scratched", undone);

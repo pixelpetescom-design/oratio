@@ -1,5 +1,15 @@
-const { invoke } = window.__TAURI__.core;
+const { invoke: rawInvoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
+
+// The window can finish loading before the app's back end has finished setting up (history, settings,
+// hotkeys). Every call waits for that, so saved settings are applied reliably at startup instead of
+// failing silently with "state not managed".
+const backendReady = (async () => {
+  for (let i = 0; i < 300; i++) {
+    try { await rawInvoke("get_snapshot"); return; } catch { await new Promise((r) => setTimeout(r, 100)); }
+  }
+})();
+const invoke = async (cmd, args) => { await backendReady; return rawInvoke(cmd, args); };
 
 const $ = (id) => document.getElementById(id);
 const wave = Wave.create($("wave"));
@@ -28,6 +38,8 @@ function icon(name) {
   t.innerHTML = ICONS[name];
   return t.content.firstElementChild;
 }
+
+window.addEventListener("unhandledrejection", (e) => { toast(String(e.reason ?? "Something went wrong"), "bad"); });
 
 // ---- navigation: icon rail, one view at a time ---------------------------------------------
 
@@ -451,6 +463,37 @@ $("ruleform").onsubmit = async (ev) => {
   renderRules();
 };
 renderRules();
+
+// Wave position: eight preset spots, or "drag it anywhere". Saved here and re-applied at startup.
+let overlayPos = { kind: "preset", id: "top_center" };
+try { overlayPos = JSON.parse(localStorage.getItem("overlayPos")) ?? overlayPos; } catch { /* keep default */ }
+function paintOverlayGrid() {
+  document.querySelectorAll("#posGrid button").forEach((b) => b.classList.toggle("active", overlayPos.kind === "preset" && b.dataset.pos === overlayPos.id));
+}
+function applyOverlayPosition() {
+  paintOverlayGrid();
+  invoke("set_overlay_position", { kind: overlayPos.kind, id: overlayPos.id ?? "top_center", x: overlayPos.x ?? 0, y: overlayPos.y ?? 0 });
+}
+document.querySelectorAll("#posGrid button").forEach((b) => (b.onclick = async () => {
+  if (b.dataset.pos === "move") {
+    $("moveBar").hidden = false;
+    await invoke("begin_move_overlay");
+    return;
+  }
+  overlayPos = { kind: "preset", id: b.dataset.pos };
+  localStorage.setItem("overlayPos", JSON.stringify(overlayPos));
+  applyOverlayPosition();
+  invoke("preview_overlay");
+}));
+$("moveDone").onclick = async () => {
+  const [x, y] = await invoke("end_move_overlay");
+  overlayPos = { kind: "custom", x, y };
+  localStorage.setItem("overlayPos", JSON.stringify(overlayPos));
+  $("moveBar").hidden = true;
+  applyOverlayPosition();
+  toast("Wave position saved");
+};
+applyOverlayPosition();
 
 // Launch at sign-in: the OS is the source of truth, so ask it rather than remembering locally.
 invoke("get_autostart").then((on) => ($("autostart").checked = on)).catch(() => ($("autostart").disabled = true));

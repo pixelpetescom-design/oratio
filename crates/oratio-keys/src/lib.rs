@@ -85,16 +85,22 @@ fn suppress_start_menu() {
 #[cfg(not(target_os = "windows"))]
 fn suppress_start_menu() {}
 
-/// Blocks until Ctrl and Win are both released, or `timeout` passes. Pasting while Win
-/// is still down would send Win+V (clipboard history) instead of Ctrl+V.
-pub fn wait_for_chord_release(timeout: Duration) {
+/// Blocks until Ctrl, Win, Shift and Alt are all physically up, or `timeout` passes. Returns whether
+/// they were released in time. Typing while Win is still down would send Win+V (clipboard history)
+/// instead of Ctrl+V, so callers wait first rather than faking key-ups.
+pub fn wait_for_modifiers_released(timeout: Duration) -> bool {
     let keyboard = DeviceState::new();
     let deadline = Instant::now() + timeout;
+    let any_modifier = |keys: &[Keycode]| {
+        keys.iter().any(|k| {
+            is_ctrl(k) || is_win(k) || is_search_key(k, SearchKey::Shift) || is_search_key(k, SearchKey::Alt)
+        })
+    };
     while Instant::now() < deadline {
-        let keys = keyboard.get_keys();
-        if !keys.iter().any(|k| is_ctrl(k) || is_win(k)) {
-            return;
+        if !any_modifier(&keyboard.get_keys()) {
+            return true;
         }
         std::thread::sleep(POLL);
     }
+    false
 }

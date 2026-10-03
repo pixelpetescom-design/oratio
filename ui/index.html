@@ -128,6 +128,20 @@
         <div id="rules" class="chips"></div>
       </div>
 
+      <div class="card options">
+        <h2>Wave position</h2>
+        <p class="hint">Choose where the wave appears while you dictate, or tap the middle to drag it anywhere on screen.</p>
+        <div class="pos-grid" id="posGrid" role="group" aria-label="Wave position">
+          <button data-pos="top_left" title="Top left"></button><button data-pos="top_center" title="Top"></button><button data-pos="top_right" title="Top right"></button>
+          <button data-pos="middle_left" title="Left"></button><button data-pos="move" class="move" title="Drag it anywhere">✥</button><button data-pos="middle_right" title="Right"></button>
+          <button data-pos="bottom_left" title="Bottom left"></button><button data-pos="bottom_center" title="Bottom"></button><button data-pos="bottom_right" title="Bottom right"></button>
+        </div>
+        <div class="move-bar" id="moveBar" hidden>
+          <span>Drag the wave where you want it, then press Done.</span>
+          <button id="moveDone" class="btn primary small">Done</button>
+        </div>
+      </div>
+
       <div class="card window-opts">
         <div class="opt-title">Window <span class="sub">See-through styles need Windows; Soft is the lightest blur</span></div>
         <div class="seg" id="glassStyle" role="group" aria-label="Window style">

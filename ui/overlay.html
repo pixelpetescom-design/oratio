@@ -8,6 +8,8 @@
     html, body { background: transparent; overflow: hidden; margin: 0; }
     .box { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 8px; }
     canvas { width: 150px; height: 76px; display: block; }
+    body.moving .box { outline: 2px dashed rgba(25, 208, 255, 0.8); outline-offset: -4px; border-radius: 16px; cursor: move; background: rgba(14, 22, 38, 0.35); }
+    body.moving, body.moving * { user-select: none; }
     #label {
       font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, 0.9); white-space: nowrap;
       padding: 3px 12px; border-radius: 999px; background: rgba(14, 18, 28, 0.55); border: 1px solid rgba(255, 255, 255, 0.12);

@@ -27,9 +27,6 @@ pub fn paste_from_clipboard() -> Result<(), CoreError> {
     let mut keyboard = Enigo::new(&Settings::default()).map_err(input_err)?;
     // The hotkey's own modifiers may still be physically down; release them so the
     // target app sees a plain Ctrl+V rather than Ctrl+Shift+V.
-    for key in [Key::Shift, Key::Alt, Key::Meta] {
-        keyboard.key(key, Direction::Release).map_err(input_err)?;
-    }
     keyboard.key(Key::Control, Direction::Press).map_err(input_err)?;
     let pasted = keyboard.key(v_key(), Direction::Click);
     // Always let go of Ctrl, even if the paste failed.
@@ -47,9 +44,6 @@ pub fn press_enter() -> Result<(), CoreError> {
 /// Presses Ctrl+Z, undoing the paste the previous dictation made ("scratch that").
 pub fn undo() -> Result<(), CoreError> {
     let mut keyboard = Enigo::new(&Settings::default()).map_err(input_err)?;
-    for key in [Key::Shift, Key::Alt, Key::Meta] {
-        keyboard.key(key, Direction::Release).map_err(input_err)?;
-    }
     keyboard.key(Key::Control, Direction::Press).map_err(input_err)?;
     let pressed = keyboard.key(z_key(), Direction::Click);
     let released = keyboard.key(Key::Control, Direction::Release);

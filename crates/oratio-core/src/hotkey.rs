@@ -13,6 +13,8 @@ enum Phase {
     Arming(Millis),
     /// Fired at this time; waiting for the keys to be released.
     Active(Millis),
+    /// The keys disappeared at `lost_at`; a real release only if they stay gone (keys can flicker).
+    Lost { fired_at: Millis, lost_at: Millis },
     /// Disqualified by another key; wait for release.
     Spent,
 }
@@ -26,6 +28,9 @@ pub enum ChordEvent {
     Released { held_ms: Millis },
 }
 
+/// Keys must stay up this long before a release counts (guards against one-poll flickers).
+const RELEASE_GRACE_MS: Millis = 40;
+
 pub struct ChordDetector {
     hold_ms: Millis,
     phase: Phase,
@@ -38,13 +43,28 @@ impl ChordDetector {
 
     /// `other_keys` is true when any key besides Ctrl and Win is down.
     pub fn update(&mut self, now: Millis, ctrl: bool, win: bool, other_keys: bool) -> Option<ChordEvent> {
-        if !(ctrl && win) {
-            let released = match self.phase {
-                Phase::Active(since) => Some(ChordEvent::Released { held_ms: now.saturating_sub(since) }),
-                _ => None,
-            };
+        let both = ctrl && win;
+        match self.phase {
+            Phase::Active(fired_at) if !both => {
+                self.phase = Phase::Lost { fired_at, lost_at: now };
+                return None;
+            }
+            Phase::Lost { fired_at, .. } if both => {
+                self.phase = Phase::Active(fired_at);
+                return None;
+            }
+            Phase::Lost { fired_at, lost_at } => {
+                if now.saturating_sub(lost_at) >= RELEASE_GRACE_MS {
+                    self.phase = Phase::Idle;
+                    return Some(ChordEvent::Released { held_ms: lost_at.saturating_sub(fired_at) });
+                }
+                return None;
+            }
+            _ => {}
+        }
+        if !both {
             self.phase = Phase::Idle;
-            return released;
+            return None;
         }
         match self.phase {
             Phase::Idle if other_keys => self.phase = Phase::Spent,
@@ -58,6 +78,12 @@ impl ChordDetector {
         }
         None
     }
+}
+
+/// Push-to-talk: letting go of Ctrl+Win ends a dictation only if it is on, one is running,
+/// and the chord was held long enough to mean "talk" (a quick tap just toggles).
+pub fn stops_on_release(hold_to_talk: bool, recording: bool, held_ms: Millis, threshold_ms: Millis) -> bool {
+    hold_to_talk && recording && held_ms >= threshold_ms
 }
 
 #[cfg(test)]
@@ -80,8 +106,9 @@ mod tests {
         let mut d = ChordDetector::new(50);
         d.update(0, true, true, false);
         assert_eq!(d.update(60, true, true, false), PRESSED);
-        assert_eq!(d.update(960, false, true, false), Some(ChordEvent::Released { held_ms: 900 }));
-        assert_eq!(d.update(1000, false, false, false), None, "only one release per press");
+        assert_eq!(d.update(960, false, true, false), None, "a release must persist briefly to count");
+        assert_eq!(d.update(1000, false, true, false), Some(ChordEvent::Released { held_ms: 900 }));
+        assert_eq!(d.update(1100, false, false, false), None, "only one release per press");
     }
 
     #[test]
@@ -89,7 +116,8 @@ mod tests {
         let mut d = ChordDetector::new(50);
         d.update(0, true, true, false);
         d.update(60, true, true, false);
-        assert_eq!(d.update(160, false, false, false), Some(ChordEvent::Released { held_ms: 100 }));
+        d.update(160, false, false, false);
+        assert_eq!(d.update(210, false, false, false), Some(ChordEvent::Released { held_ms: 100 }));
     }
 
     #[test]
@@ -98,8 +126,31 @@ mod tests {
         d.update(0, true, true, false);
         assert_eq!(d.update(60, true, true, false), PRESSED);
         d.update(100, false, false, false);
+        d.update(150, false, false, false); // released for real
         d.update(200, true, true, false);
         assert_eq!(d.update(260, true, true, false), PRESSED);
+    }
+
+    #[test]
+    fn a_brief_flicker_while_held_is_not_a_release_or_a_second_press() {
+        let mut d = ChordDetector::new(50);
+        d.update(0, true, true, false);
+        assert_eq!(d.update(60, true, true, false), PRESSED);
+        assert_eq!(d.update(300, true, false, false), None, "Win reads as up for one poll");
+        assert_eq!(d.update(308, true, true, false), None, "...then down again");
+        for t in (400..2000).step_by(8) {
+            assert_eq!(d.update(t, true, true, false), None, "no repeat while still held");
+        }
+        d.update(2000, false, false, false);
+        assert_eq!(d.update(2050, false, false, false), Some(ChordEvent::Released { held_ms: 1940 }));
+    }
+
+    #[test]
+    fn push_to_talk_needs_the_setting_a_recording_and_a_long_hold() {
+        assert!(stops_on_release(true, true, 600, 450));
+        assert!(!stops_on_release(false, true, 600, 450), "setting off");
+        assert!(!stops_on_release(true, false, 600, 450), "nothing recording");
+        assert!(!stops_on_release(true, true, 200, 450), "a quick tap just toggles");
     }
 
     #[test]

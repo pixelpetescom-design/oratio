@@ -37,3 +37,11 @@ listen("finished", ({ payload }) => {
 });
 listen("scratched", ({ payload }) => show("idle", payload ? "Undone ✓" : "Nothing to undo"));
 listen("problem", () => show("idle", "Something went wrong — open Oratio"));
+
+// "Drag it anywhere" mode: the whole overlay becomes a drag handle until the user presses Done in Settings.
+listen("overlay-move", ({ payload: on }) => {
+  document.body.classList.toggle("moving", on);
+  document.querySelectorAll(".box, .box *").forEach((el) => (on ? el.setAttribute("data-tauri-drag-region", "") : el.removeAttribute("data-tauri-drag-region")));
+  if (on) show("listening", "Drag me, then press Done");
+});
+listen("overlay-preview", () => show("idle", "Wave appears here"));

@@ -153,3 +153,12 @@ select:focus, #snippetform input:focus, #snippetform textarea:focus, #ruleform i
 .options > h2, .card > h2:first-child { margin-bottom: 2px; }
 .chip.long { max-width: 100%; }
 .chip .chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+
+/* Wave position picker: a 3x3 screen map */
+.pos-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; width: 168px; padding: 8px; border-radius: 12px; background: var(--field); border: 1px solid var(--line); }
+.pos-grid button { height: 30px; border-radius: 8px; border: 1px solid var(--line); background: rgba(120, 150, 200, 0.12); color: var(--muted); font-size: 15px; transition: background 0.2s, transform 0.12s var(--ease), box-shadow 0.2s; }
+.pos-grid button:hover { background: rgba(0, 150, 255, 0.28); }
+.pos-grid button:active { transform: scale(0.9); }
+.pos-grid button.active { background: var(--grad); border-color: transparent; box-shadow: var(--glow); }
+.pos-grid .move { color: var(--cyan); }
+.move-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(0, 170, 255, 0.5); background: rgba(0, 120, 255, 0.1); animation: drop 0.25s var(--ease); }

@@ -27,6 +27,13 @@ fn audio_ctx_for(samples: usize) -> i32 {
     (((frames / 64.0).ceil() as i32) * 64).clamp(512, 1500)
 }
 
+/// A generous ceiling on output length: speech is at most ~10 tokens a second, so a longer answer
+/// than that is the model rambling, not the speaker.
+fn max_tokens_for(samples: usize) -> i32 {
+    let secs = samples as f32 / 16_000.0;
+    ((secs * 12.0) as i32 + 24).clamp(32, 440)
+}
+
 fn stt_err(e: impl std::fmt::Display) -> CoreError {
     CoreError::Stt(e.to_string())
 }
@@ -61,11 +68,13 @@ impl Transcriber for WhisperTranscriber {
         // at higher temperatures, and only encode as much audio as there is.
         p.set_no_timestamps(true);
         p.set_single_segment(true);
-        p.set_temperature_inc(0.0);
+        // Keep Whisper's own recovery: if a pass looks like a loop or gibberish it retries at a higher
+        // temperature. (Switching this off for speed let it repeat one phrase indefinitely.)
+        p.set_temperature_inc(0.2);
+        p.set_max_tokens(max_tokens_for(audio.len()));
         p.set_audio_ctx(audio_ctx_for(audio.len()));
         p.set_suppress_blank(true);
-        // The segmenter already gated out silence; don't let the model second-guess quiet speech.
-        p.set_no_speech_thold(0.9);
+        p.set_no_speech_thold(0.6);
         p.set_initial_prompt(&self.prompt);
         p.set_print_special(false);
         p.set_print_progress(false);
@@ -93,6 +102,13 @@ impl Transcriber for WhisperTranscriber {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn output_length_is_capped_in_proportion_to_the_audio() {
+        assert_eq!(max_tokens_for(0), 32);
+        assert_eq!(max_tokens_for(16_000 * 5), 84);
+        assert_eq!(max_tokens_for(16_000 * 600), 440);
+    }
 
     #[test]
     fn audio_context_scales_with_clip_length_and_stays_in_bounds() {

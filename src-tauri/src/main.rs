@@ -3,6 +3,7 @@
 mod commands;
 mod config;
 mod controller;
+mod overlay_window;
 mod paths;
 
 use std::sync::mpsc::channel;
@@ -10,7 +11,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, PhysicalPosition, WindowEvent};
+use tauri::{Manager, WindowEvent};
 use tauri_plugin_global_shortcut::ShortcutState;
 use oratio_core::engine::Engine;
 use oratio_core::apps::AppRules;
@@ -36,6 +37,10 @@ fn main() {
             commands::set_glass,
             commands::set_search,
             commands::set_behaviour,
+            commands::set_overlay_position,
+            commands::preview_overlay,
+            commands::begin_move_overlay,
+            commands::end_move_overlay,
             commands::list_microphones,
             commands::set_microphone,
             commands::list_app_rules,
@@ -136,7 +141,7 @@ fn main() {
                 // running, so tapping to start and tapping to stop still works.
                 move |held_ms| {
                     let recording = on_release.shared.state.lock().map(|s| matches!(*s, State::Recording | State::CancelPending { .. })).unwrap_or(false);
-                    if recording && held_ms >= config::HOLD_TO_TALK_MS && on_release.shared.hold_to_talk.load(Ordering::Relaxed) {
+                    if oratio_core::hotkey::stops_on_release(on_release.shared.hold_to_talk.load(Ordering::Relaxed), recording, held_ms, config::HOLD_TO_TALK_MS) {
                         on_release.send(Input::Toggle);
                     }
                 },
@@ -147,15 +152,6 @@ fn main() {
                 },
             );
             app.manage(ctl);
-
-            // Overlay: a click-through pill at the top centre of the primary screen.
-            if let Some(overlay) = app.get_webview_window("overlay") {
-                if let (Ok(Some(m)), Ok(size)) = (overlay.primary_monitor(), overlay.outer_size()) {
-                    let x = m.position().x + (m.size().width as i32 - size.width as i32) / 2;
-                    let y = m.position().y + (24.0 * m.scale_factor()) as i32;
-                    let _ = overlay.set_position(PhysicalPosition::new(x, y));
-                }
-            }
 
             // Tray: reopen the window or quit.
             let show = MenuItem::with_id(app, "show", "Open Oratio", true, None::<&str>)?;

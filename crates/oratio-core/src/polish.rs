@@ -76,6 +76,37 @@ pub fn polish<S: AsRef<str>>(segments: &[S]) -> String {
     out
 }
 
+/// Speech models sometimes get stuck on near-silence and repeat one phrase over and over
+/// ("Listening. Listening. Listening. …"). Collapses any run of 4+ identical consecutive phrases
+/// (up to 8 words long) to a single copy, and reports the longest run it found so the caller can
+/// treat an extreme run as a hallucination and discard it.
+pub fn collapse_repeats(text: &str) -> (String, usize) {
+    let tokens: Vec<&str> = text.split_whitespace().collect();
+    let cores: Vec<String> = tokens.iter().map(|t| core(t)).collect();
+    let (mut out, mut longest, mut i) = (Vec::new(), 1usize, 0usize);
+    while i < tokens.len() {
+        let mut collapsed = false;
+        for period in 1..=8usize.min((tokens.len() - i) / 2) {
+            let mut runs = 1;
+            while i + (runs + 1) * period <= tokens.len() && cores[i..i + period] == cores[i + runs * period..i + (runs + 1) * period] {
+                runs += 1;
+            }
+            if runs >= 4 {
+                out.extend_from_slice(&tokens[i..i + period]);
+                longest = longest.max(runs);
+                i += runs * period;
+                collapsed = true;
+                break;
+            }
+        }
+        if !collapsed {
+            out.push(tokens[i]);
+            i += 1;
+        }
+    }
+    (out.join(" "), longest)
+}
+
 /// Text to insert when it continues what the previous dictation typed in the same place:
 /// a leading space, unless it begins with closing punctuation that belongs to the previous words.
 pub fn continuation(text: &str) -> String {
@@ -121,6 +152,20 @@ mod tests {
     #[test]
     fn tidies_spacing_before_punctuation() {
         assert_eq!(polish(&["wait , what ?"]), "Wait, what?");
+    }
+
+    #[test]
+    fn a_stuck_model_repeating_one_phrase_is_collapsed_and_measured() {
+        let stuck = "Listening. ".repeat(110);
+        assert_eq!(collapse_repeats(&stuck), ("Listening.".to_string(), 110));
+        assert_eq!(collapse_repeats("thank you thank you thank you thank you so much"), ("thank you so much".to_string(), 4));
+    }
+
+    #[test]
+    fn ordinary_repetition_is_left_alone() {
+        for s in ["no no no", "It was very very good.", "bye bye", "one two three four"] {
+            assert_eq!(collapse_repeats(s), (s.to_string(), 1));
+        }
     }
 
     #[test]

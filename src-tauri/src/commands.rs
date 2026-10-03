@@ -6,7 +6,8 @@ use serde::Serialize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::window::{Color, Effect, EffectsBuilder};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+use oratio_core::overlay::{Position, Preset};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use oratio_core::history::{History, Status};
@@ -233,4 +234,58 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<bool, String> {
     let launcher = app.autolaunch();
     if enabled { launcher.enable() } else { launcher.disable() }.map_err(|e| e.to_string())?;
     launcher.is_enabled().map_err(|e| e.to_string())
+}
+
+/// Where the wave overlay appears: a preset spot ("top_left"…) or, with kind "custom", the pixel position
+/// the user dragged it to.
+#[tauri::command]
+pub fn set_overlay_position(ctl: State<'_, Handle>, kind: String, id: String, x: i32, y: i32) {
+    let position = if kind == "custom" { Position::Custom(x, y) } else { Preset::parse(&id).map_or_else(Position::default, Position::Preset) };
+    if let Ok(mut p) = ctl.shared.overlay_pos.lock() {
+        *p = position;
+    }
+}
+
+/// Briefly shows the overlay at its current spot so the user can see where it will appear.
+#[tauri::command]
+pub fn preview_overlay(app: AppHandle, ctl: State<'_, Handle>) {
+    let Some(window) = app.get_webview_window("overlay") else { return };
+    crate::overlay_window::position(&app, &ctl.shared);
+    let _ = window.show();
+    let _ = window.set_ignore_cursor_events(true);
+    let _ = app.emit("overlay-preview", ());
+    let shared = ctl.shared.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(1800));
+        let busy = shared.state.lock().map(|s| !matches!(*s, Phase::Idle | Phase::Off)).unwrap_or(true);
+        if !busy && !shared.overlay_moving.load(Ordering::Relaxed) {
+            let _ = window.hide();
+        }
+    });
+}
+
+/// Starts "drag it anywhere" mode: the overlay becomes visible and grabbable until `end_move_overlay`.
+#[tauri::command]
+pub fn begin_move_overlay(app: AppHandle, ctl: State<'_, Handle>) {
+    let Some(window) = app.get_webview_window("overlay") else { return };
+    ctl.shared.overlay_moving.store(true, Ordering::Relaxed);
+    crate::overlay_window::position(&app, &ctl.shared);
+    let _ = window.show();
+    let _ = window.set_ignore_cursor_events(false);
+    let _ = app.emit("overlay-move", true);
+}
+
+/// Ends drag mode, remembers where the overlay was left, and returns that position.
+#[tauri::command]
+pub fn end_move_overlay(app: AppHandle, ctl: State<'_, Handle>) -> Result<(i32, i32), String> {
+    let window = app.get_webview_window("overlay").ok_or("overlay window missing")?;
+    let at = window.outer_position().map_err(|e| e.to_string())?;
+    ctl.shared.overlay_moving.store(false, Ordering::Relaxed);
+    if let Ok(mut p) = ctl.shared.overlay_pos.lock() {
+        *p = Position::Custom(at.x, at.y);
+    }
+    let _ = window.set_ignore_cursor_events(true);
+    let _ = window.hide();
+    let _ = app.emit("overlay-move", false);
+    Ok((at.x, at.y))
 }

@@ -2,6 +2,12 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "UI windows may listen to events; all privileged work happens in Rust.",
-  "windows": ["main", "overlay"],
-  "permissions": ["core:default"]
+  "windows": [
+    "main",
+    "overlay"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
 }

@@ -9,7 +9,7 @@
 use crate::history::{History, RecordingId};
 use crate::lexicon::{Fix, Lexicon};
 use crate::commands;
-use crate::polish::polish;
+use crate::polish::{collapse_repeats, polish};
 use crate::vocab::apply_fixes;
 use crate::spelling::to_australian;
 use crate::segmenter::{normalize, rms, Segmenter, SegmenterConfig, SAMPLE_RATE};
@@ -113,7 +113,12 @@ fn recognise(transcriber: &mut dyn Transcriber, history: &dyn History, take: &mu
         );
         match result {
             Ok(Ok(text)) => {
-                let text = text.trim().to_string();
+                // A model stuck in a loop on near-silence repeats one phrase; keep one copy, or drop a long loop entirely.
+                let (text, longest_run) = collapse_repeats(text.trim());
+                if longest_run >= 8 {
+                    eprintln!("[oratio] discarded a repeating hallucination ({longest_run} repeats of {text:?})");
+                    return;
+                }
                 if text.is_empty() {
                     return;
                 }
@@ -442,5 +447,12 @@ mod tests {
         lexicon.add_snippet(&Fix { from: "my address".into(), to: "1 George St\nSydney NSW".into() }).unwrap();
         let e = dictate(vec![Ok("send it to my address")], lexicon, true);
         assert_eq!(e, Event::Finished { id: Some(1), text: "Send it to 1 George St\nSydney NSW.".into(), enter: false });
+    }
+
+    #[test]
+    fn a_hallucination_loop_is_discarded_not_typed() {
+        let looped: &'static str = Box::leak("Listening. ".repeat(40).into_boxed_str());
+        let e = dictate(vec![Ok(looped)], Arc::new(MemLexicon::default()), true);
+        assert_eq!(e, Event::Finished { id: None, text: String::new(), enter: false });
     }
 }
