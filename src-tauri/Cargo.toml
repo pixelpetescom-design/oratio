@@ -15,6 +15,7 @@ oratio-stt = { path = "../crates/oratio-stt" }
 oratio-store = { path = "../crates/oratio-store" }
 oratio-paste = { path = "../crates/oratio-paste" }
 oratio-keys = { path = "../crates/oratio-keys" }
+oratio-window = { path = "../crates/oratio-window" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"

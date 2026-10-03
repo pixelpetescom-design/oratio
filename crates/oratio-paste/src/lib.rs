@@ -37,3 +37,32 @@ pub fn paste_from_clipboard() -> Result<(), CoreError> {
     pasted.map_err(input_err)?;
     released.map_err(input_err)
 }
+
+/// Presses Enter (after typing into a chat box, say).
+pub fn press_enter() -> Result<(), CoreError> {
+    let mut keyboard = Enigo::new(&Settings::default()).map_err(input_err)?;
+    keyboard.key(Key::Return, Direction::Click).map_err(input_err)
+}
+
+/// Presses Ctrl+Z, undoing the paste the previous dictation made ("scratch that").
+pub fn undo() -> Result<(), CoreError> {
+    let mut keyboard = Enigo::new(&Settings::default()).map_err(input_err)?;
+    for key in [Key::Shift, Key::Alt, Key::Meta] {
+        keyboard.key(key, Direction::Release).map_err(input_err)?;
+    }
+    keyboard.key(Key::Control, Direction::Press).map_err(input_err)?;
+    let pressed = keyboard.key(z_key(), Direction::Click);
+    let released = keyboard.key(Key::Control, Direction::Release);
+    pressed.map_err(input_err)?;
+    released.map_err(input_err)
+}
+
+#[cfg(target_os = "windows")]
+fn z_key() -> Key {
+    Key::Z
+}
+
+#[cfg(not(target_os = "windows"))]
+fn z_key() -> Key {
+    Key::Unicode('z')
+}

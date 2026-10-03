@@ -263,10 +263,14 @@ $("confirmYes").onclick = async () => {
 
 // ---- vocabulary ----------------------------------------------------------------------------
 
-function chip(label, onRemove) {
+function chip(label, onRemove, long = false) {
   const c = document.createElement("span");
-  c.className = "chip";
-  c.append(label);
+  c.className = `chip${long ? " long" : ""}`;
+  const text = document.createElement("span");
+  text.className = "chip-text";
+  text.textContent = label;
+  text.title = label;
+  c.append(text);
   const x = document.createElement("button");
   x.append(icon("x"));
   x.querySelector("svg").style.cssText = "width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round";
@@ -280,8 +284,20 @@ async function renderLexicon() {
   let lex;
   try { lex = await invoke("list_lexicon"); } catch (e) { renderProblems([String(e)]); return; }
   $("words").replaceChildren(...lex.words.map((w) => chip(w, async () => { await invoke("remove_word", { word: w }); renderLexicon(); })));
+  $("snippets").replaceChildren(...lex.snippets.map((s) => chip(`${s.from} → ${s.to.replace(/\n/g, " ⏎ ")}`, async () => { await invoke("remove_snippet", { trigger: s.from }); renderLexicon(); }, true)));
   $("fixes").replaceChildren(...lex.fixes.map((f) => chip(`${f.from} → ${f.to}`, async () => { await invoke("remove_fix", { from: f.from }); renderLexicon(); })));
 }
+
+$("snippetform").onsubmit = async (ev) => {
+  ev.preventDefault();
+  try {
+    await invoke("add_snippet", { trigger: $("snippetTrigger").value, text: $("snippetText").value });
+    $("snippetTrigger").value = "";
+    $("snippetText").value = "";
+    toast("Snippet added");
+  } catch (e) { toast(String(e), "bad"); }
+  renderLexicon();
+};
 
 $("wordform").onsubmit = async (ev) => {
   ev.preventDefault();
@@ -341,14 +357,19 @@ $("tint").oninput = () => {
 paintTint();
 applyGlass();
 
-// Voice search: hold Shift or Alt with Ctrl + Win to search Google for what you say.
+// Voice search: hold Shift or Alt with Ctrl + Win to search for what you say.
 let searchOn = localStorage.getItem("search") === "on";
 let searchKey = localStorage.getItem("searchKey") === "alt" ? "alt" : "shift";
+let searchEngine = localStorage.getItem("searchEngine") ?? "google";
+let searchCustom = localStorage.getItem("searchCustom") ?? "";
 function applySearch() {
   $("search").checked = searchOn;
   document.querySelector(".switch-group").classList.toggle("off", !searchOn);
   document.querySelectorAll("#searchKey button").forEach((b) => b.classList.toggle("active", b.dataset.key === searchKey));
-  invoke("set_search", { enabled: searchOn, key: searchKey });
+  $("searchEngine").value = searchEngine;
+  $("searchCustom").hidden = searchEngine !== "custom";
+  $("searchCustom").value = searchCustom;
+  invoke("set_search", { enabled: searchOn, key: searchKey, engine: searchEngine, custom: searchCustom });
 }
 $("search").onchange = () => {
   searchOn = $("search").checked;
@@ -361,7 +382,75 @@ document.querySelectorAll("#searchKey button").forEach((b) => (b.onclick = () =>
   localStorage.setItem("searchKey", searchKey);
   applySearch();
 }));
+$("searchEngine").onchange = () => {
+  searchEngine = $("searchEngine").value;
+  localStorage.setItem("searchEngine", searchEngine);
+  applySearch();
+};
+$("searchCustom").onchange = () => {
+  searchCustom = $("searchCustom").value.trim();
+  localStorage.setItem("searchCustom", searchCustom);
+  if (searchCustom && !(searchCustom.startsWith("https://") && searchCustom.includes("{q}"))) toast("Use an https:// address containing {q}", "bad");
+  applySearch();
+};
 applySearch();
+
+// Hold-to-talk and spoken commands.
+let holdTalk = localStorage.getItem("holdTalk") === "on";
+let spoken = localStorage.getItem("spoken") !== "off";
+function applyBehaviour() {
+  $("holdtalk").checked = holdTalk;
+  $("spoken").checked = spoken;
+  invoke("set_behaviour", { spokenCommands: spoken, holdToTalk: holdTalk });
+}
+$("holdtalk").onchange = () => {
+  holdTalk = $("holdtalk").checked;
+  localStorage.setItem("holdTalk", holdTalk ? "on" : "off");
+  applyBehaviour();
+  if (holdTalk) toast("Hold Ctrl + Win to talk, let go to finish");
+};
+$("spoken").onchange = () => {
+  spoken = $("spoken").checked;
+  localStorage.setItem("spoken", spoken ? "on" : "off");
+  applyBehaviour();
+};
+applyBehaviour();
+
+// Microphone picker. The system default is "" and is also the fallback if the chosen one is unplugged.
+async function loadMics() {
+  let names = [];
+  try { names = await invoke("list_microphones"); } catch { /* none listed */ }
+  const saved = localStorage.getItem("mic") ?? "";
+  const sel = $("mic");
+  sel.replaceChildren(new Option("System default", ""), ...names.map((n) => new Option(n, n)));
+  sel.value = names.includes(saved) ? saved : "";
+  invoke("set_microphone", { name: sel.value });
+}
+$("mic").onchange = () => {
+  localStorage.setItem("mic", $("mic").value);
+  invoke("set_microphone", { name: $("mic").value });
+  toast($("mic").value ? "Microphone changed" : "Using the system default microphone");
+};
+$("mic").onfocus = loadMics; // pick up headsets plugged in since launch
+loadMics();
+
+// Per-app rules.
+const RULE_LABELS = { enter_after: "press Enter", copy_only: "copy only" };
+async function renderRules() {
+  let rules = [];
+  try { rules = await invoke("list_app_rules"); } catch (e) { renderProblems([String(e)]); return; }
+  $("rules").replaceChildren(...rules.map((r) => chip(`${r.pattern} → ${RULE_LABELS[r.action] ?? r.action}`, async () => { await invoke("remove_app_rule", { pattern: r.pattern }); renderRules(); })));
+}
+$("ruleform").onsubmit = async (ev) => {
+  ev.preventDefault();
+  try {
+    await invoke("add_app_rule", { pattern: $("rulePattern").value, action: $("ruleAction").value });
+    $("rulePattern").value = "";
+    toast("Rule added");
+  } catch (e) { toast(String(e), "bad"); }
+  renderRules();
+};
+renderRules();
 
 // Launch at sign-in: the OS is the source of truth, so ask it rather than remembering locally.
 invoke("get_autostart").then((on) => ($("autostart").checked = on)).catch(() => ($("autostart").disabled = true));
@@ -397,7 +486,7 @@ listen("finished", ({ payload }) => {
   if (!payload.text) setLive("No speech detected.");
   else {
     setLive(payload.text, true);
-    toast(payload.searched ? "Searching Google…" : payload.pasted ? "Typed into your app" : payload.copied ? "Copied to clipboard" : "Saved to history", payload.searched || payload.pasted || payload.copied ? "ok" : "bad");
+    toast(payload.searched ? "Searching…" : payload.copy_only ? "Copied — typing is off for this app" : payload.pasted ? "Typed into your app" : payload.copied ? "Copied to clipboard" : "Saved to history", payload.searched || payload.pasted || payload.copied ? "ok" : "bad");
   }
   if (payload.elapsed_ms != null && payload.text) {
     latencies.push(payload.elapsed_ms / 1000);
@@ -405,6 +494,10 @@ listen("finished", ({ payload }) => {
   }
   liveText = "";
   if (payload.text && !$("navHistory").classList.contains("active")) $("navHistory").classList.add("badge");
+});
+listen("scratched", ({ payload }) => {
+  setLive(payload ? "Undid your last dictation." : "Nothing recent to undo.");
+  toast(payload ? "Undid last dictation" : "Nothing recent to undo", payload ? "ok" : "bad");
 });
 listen("problem", () => invoke("get_snapshot").then((s) => renderProblems(s.problems)));
 listen("history", renderHistory);

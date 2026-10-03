@@ -8,7 +8,7 @@ Nothing leaves the machine (the webview CSP allows no network origins and no ada
 ```
             src-tauri  (shell: wiring, hotkeys, clipboard, tray, windows)
            /    |     \        \       \
-    oratio-audio oratio-stt oratio-store oratio-paste oratio-keys   adapters: one third-party integration each
+    oratio-audio oratio-stt oratio-store oratio-paste oratio-keys oratio-window   adapters: one third-party integration each
            \    |     /
             oratio-core                  pure: domain, state machine, ports, engine
 ```
@@ -27,7 +27,7 @@ Nothing leaves the machine (the webview CSP allows no network origins and no ada
 | `Lexicon` | `oratio-store` | the user's vocabulary and learned corrections |
 
 `oratio-keys` watches for the Ctrl+Win chord (modifier-only combos can't be OS hotkeys, so it polls key state
-and feeds a pure `ChordDetector` in the core). `oratio-paste` presses Ctrl+V in the focused app (clipboard first, so a failed paste never loses text).
+and feeds a pure `ChordDetector` in the core). `oratio-window` reports which app has focus (for per-app rules). `oratio-paste` presses Ctrl+V, Enter and Ctrl+Z in the focused app (clipboard first, so a failed paste never loses text).
 Microphone capture (`oratio-audio`) is a plain function: it yields 16 kHz mono chunks to a sink.
 
 ## The lifecycle is a pure state machine (`oratio_core::session`)
@@ -89,7 +89,20 @@ user's own vocabulary is exempt, and learned corrections run last so they always
   `from → to` rules, stored in the `Lexicon` and applied to every future result by `apply_fixes`.
 * The engine reads both at the start of each recording, so a new correction applies to the very next dictation.
 
+## Dictation extras (all pure logic in `oratio-core`, adapters stay thin)
+
+| Feature | Where the logic lives |
+|---|---|
+| Spoken commands ("new line", "full stop", "scratch that", trailing "press enter") | `commands::apply`, run after spelling/corrections so line breaks survive |
+| Snippets (say "my address" → full text) | `Lexicon` port + `apply_fixes` (line-preserving) |
+| Hold-to-talk | `ChordDetector` reports press **and** release with the hold time; a hold ≥ 450 ms ends the dictation on release, a tap still toggles |
+| Voice search (Shift/Alt + Ctrl+Win) | `search`: engines, spoken routing ("YouTube cute cats"), https-only custom address, percent-encoding |
+| Per-app rules (copy only / press Enter after) | `apps::action_for` over the `AppRules` port; focus lookup in `oratio-window` |
+| Microphone picker | `oratio-audio::input_devices` + `Capture::start(device, …)`; falls back to the default device |
+
+Pipeline order matters: recogniser → polish → Australian spelling → learned corrections → spoken commands → snippets.
+
 ## Not in the MVP (known, deliberate)
 
-Settings UI / rebinding the hotkey · spooling raw audio to disk for
+Rebinding the Ctrl+Win hotkey · export/backup of history and word lists · spooling raw audio to disk for
 re-transcription · single-instance lock · Parakeet adapter · macOS/Linux packaging (code is portable, untested).

@@ -4,7 +4,7 @@
 use device_query::{DeviceQuery, DeviceState, Keycode};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{Duration, Instant};
-use oratio_core::hotkey::ChordDetector;
+use oratio_core::hotkey::{ChordDetector, ChordEvent};
 use oratio_core::search::SearchKey;
 
 const POLL: Duration = Duration::from_millis(8);
@@ -29,10 +29,11 @@ fn is_search_key(k: &Keycode, key: SearchKey) -> bool {
 /// pressed, told whether the voice-search key was also held, and returns whether the app claimed it
 /// (when it didn't, e.g. dictation is off, the keys are left entirely to Windows). `search_key` says
 /// which key currently means "search" (None = voice search off, so extra keys cancel the chord as
-/// usual). `on_failure` runs once if the watcher dies, so the app can say so.
+/// usual). `on_release` gets how many milliseconds the chord was held when it was let go. `on_failure` runs once if the watcher dies, so the app can say so.
 pub fn spawn(
     search_key: impl Fn() -> Option<SearchKey> + Send + 'static,
     on_chord: impl Fn(bool) -> bool + Send + 'static,
+    on_release: impl Fn(u64) + Send + 'static,
     on_failure: impl FnOnce(String) + Send + 'static,
 ) {
     let started = std::thread::Builder::new().name("oratio-keys".into()).spawn(move || {
@@ -48,8 +49,15 @@ pub fn spawn(
                 let searching = search.is_some_and(|key| keys.iter().any(|k| is_search_key(k, key)));
                 // The search key is allowed alongside the chord; any other key still cancels it.
                 let other = keys.iter().any(|k| !is_ctrl(k) && !is_win(k) && !search.is_some_and(|key| is_search_key(k, key)));
-                if detector.update(clock.elapsed().as_millis() as u64, ctrl, win, other) && on_chord(searching) {
-                    suppress_start_menu();
+                match detector.update(clock.elapsed().as_millis() as u64, ctrl, win, other) {
+                    Some(ChordEvent::Pressed) => {
+                        if on_chord(searching) {
+                            suppress_start_menu();
+                        }
+                    }
+                    // Tells the app how long the chord was held, so it can treat a long hold as push-to-talk.
+                    Some(ChordEvent::Released { held_ms }) => on_release(held_ms),
+                    None => {}
                 }
             }
         }));

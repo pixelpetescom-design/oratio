@@ -2,6 +2,8 @@
 //! adapters implement the ports defined here, and the shell wires them together.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
+pub mod apps;
+pub mod commands;
 pub mod engine;
 pub mod error;
 pub mod history;

@@ -4,6 +4,12 @@ Local, offline push-to-dictate for Windows. press **Ctrl + Win** to start, again
 is on your clipboard and typed into whatever app you're in (toggle in the window; the clipboard copy always happens). No account, no network, no limits. MIT.
 
 * While recording, **Esc** starts a 3-second cancel countdown; **Esc** again resumes; letting it expire discards the recording.
+* **Hold to talk** (optional): hold Ctrl + Win while you speak, let go to finish. A quick tap still starts/stops.
+* **Spoken commands**: say “new line”, “new paragraph”, “full stop”, “comma”, “question mark”, brackets and quotes; “scratch that” undoes your last dictation; end with “press enter” to send.
+* **Snippets**: say “my address” and Oratio types your saved text instead.
+* **Voice search**: hold Shift (or Alt) with Ctrl + Win to search Google, Bing, DuckDuckGo, YouTube, Maps, Wikipedia or a custom address by voice. Start with an engine name (“YouTube cute cats”) to pick one by voice.
+* **Per-app behaviour**: e.g. never type into a game, or press Enter after typing into Discord.
+* **Microphone picker** and Australian English spelling.
 * Every transcription is saved locally (SQLite) so you can copy it later, even after a crash.
 * Closing the window keeps Oratio in the tray.
 

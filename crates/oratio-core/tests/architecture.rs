@@ -42,4 +42,5 @@ fn adapters_depend_only_on_core_and_their_integration() {
     assert_exactly("oratio-store", &["oratio-core", "rusqlite"]);
     assert_exactly("oratio-paste", &["oratio-core", "enigo"]);
     assert_exactly("oratio-keys", &["oratio-core", "device_query", "enigo"]);
+    assert_exactly("oratio-window", &["oratio-core", "active-win-pos-rs"]);
 }

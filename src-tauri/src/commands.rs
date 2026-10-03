@@ -10,6 +10,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use oratio_core::history::{History, Status};
+use oratio_core::apps::{AppAction, AppRule, AppRules};
 use oratio_core::lexicon::{learn_from_edit, Fix, Lexicon};
 use oratio_core::session::{Input, State as Phase};
 
@@ -50,11 +51,83 @@ pub fn set_enabled(ctl: State<'_, Handle>, enabled: bool) {
     ctl.send(if enabled { Input::Enable } else { Input::Disable });
 }
 
-/// Voice search on/off and which key to hold ("shift" or "alt").
+/// Voice search: on/off, the key to hold ("shift" or "alt"), the default engine id, and a custom address.
 #[tauri::command]
-pub fn set_search(ctl: State<'_, Handle>, enabled: bool, key: String) {
+pub fn set_search(ctl: State<'_, Handle>, enabled: bool, key: String, engine: String, custom: String) {
     ctl.shared.search_enabled.store(enabled, Ordering::Relaxed);
     ctl.shared.search_key.store(u8::from(key == "alt"), Ordering::Relaxed);
+    if let Ok(mut e) = ctl.shared.search_engine.lock() {
+        *e = engine;
+    }
+    if let Ok(mut c) = ctl.shared.search_custom.lock() {
+        *c = custom;
+    }
+}
+
+/// How dictation behaves: spoken commands on/off, and hold-to-talk.
+#[tauri::command]
+pub fn set_behaviour(ctl: State<'_, Handle>, spoken_commands: bool, hold_to_talk: bool) {
+    ctl.shared.spoken_commands.store(spoken_commands, Ordering::Relaxed);
+    ctl.shared.hold_to_talk.store(hold_to_talk, Ordering::Relaxed);
+}
+
+#[tauri::command]
+pub fn list_microphones() -> Vec<String> {
+    oratio_audio::input_devices()
+}
+
+/// Picks the microphone by name; an empty name means the system default.
+#[tauri::command]
+pub fn set_microphone(ctl: State<'_, Handle>, name: String) {
+    if let Ok(mut m) = ctl.shared.mic.lock() {
+        *m = (!name.trim().is_empty()).then_some(name);
+    }
+}
+
+#[derive(Serialize)]
+pub struct RuleView {
+    pattern: String,
+    action: AppAction,
+}
+
+#[tauri::command]
+pub fn list_app_rules(rules: State<'_, Arc<dyn AppRules>>) -> Result<Vec<RuleView>, String> {
+    Ok(rules.rules().map_err(|e| e.to_string())?.into_iter().map(|r| RuleView { pattern: r.pattern, action: r.action }).collect())
+}
+
+#[tauri::command]
+pub fn add_app_rule(rules: State<'_, Arc<dyn AppRules>>, pattern: String, action: String) -> Result<(), String> {
+    let pattern = pattern.trim().to_string();
+    let action = AppAction::parse(&action).ok_or("unknown action")?;
+    if pattern.is_empty() {
+        return Err("enter part of the app's name".into());
+    }
+    rules.add_rule(&AppRule { pattern, action }).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_app_rule(rules: State<'_, Arc<dyn AppRules>>, pattern: String) -> Result<(), String> {
+    rules.remove_rule(&pattern).map_err(|e| e.to_string())
+}
+
+/// Snippet triggers are matched as lower-case words, so normalise what the user typed the same way.
+#[tauri::command]
+pub fn add_snippet(lexicon: State<'_, Arc<dyn Lexicon>>, trigger: String, text: String) -> Result<(), String> {
+    let from = trigger
+        .split_whitespace()
+        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if from.is_empty() || text.trim().is_empty() {
+        return Err("enter a trigger phrase and the text it should become".into());
+    }
+    lexicon.add_snippet(&Fix { from, to: text.trim_end().to_string() }).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_snippet(lexicon: State<'_, Arc<dyn Lexicon>>, trigger: String) -> Result<(), String> {
+    lexicon.remove_snippet(&trigger).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -99,11 +172,12 @@ pub fn clear_history(ctl: State<'_, Handle>, history: State<'_, Arc<dyn History>
 pub struct LexiconView {
     words: Vec<String>,
     fixes: Vec<Fix>,
+    snippets: Vec<Fix>,
 }
 
 #[tauri::command]
 pub fn list_lexicon(lexicon: State<'_, Arc<dyn Lexicon>>) -> Result<LexiconView, String> {
-    Ok(LexiconView { words: lexicon.words().map_err(|e| e.to_string())?, fixes: lexicon.fixes().map_err(|e| e.to_string())? })
+    Ok(LexiconView { words: lexicon.words().map_err(|e| e.to_string())?, fixes: lexicon.fixes().map_err(|e| e.to_string())?, snippets: lexicon.snippets().map_err(|e| e.to_string())? })
 }
 
 #[tauri::command]

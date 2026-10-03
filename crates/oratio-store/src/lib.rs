@@ -5,6 +5,7 @@
 use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
+use oratio_core::apps::{AppAction, AppRule, AppRules};
 use oratio_core::history::{Entry, History, RecordingId, Status};
 use oratio_core::lexicon::{Fix, Lexicon};
 use oratio_core::CoreError;
@@ -34,6 +35,19 @@ const MIGRATIONS: &[&str] = &["
     CREATE TABLE fixes (
         from_text TEXT PRIMARY KEY COLLATE NOCASE,
         to_text TEXT NOT NULL,
+        added_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+",
+// Snippets (spoken trigger → text) and per-app rules.
+"
+    CREATE TABLE snippets (
+        phrase TEXT PRIMARY KEY COLLATE NOCASE,
+        expansion TEXT NOT NULL,
+        added_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+    CREATE TABLE app_rules (
+        pattern TEXT PRIMARY KEY COLLATE NOCASE,
+        action TEXT NOT NULL,
         added_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
 "];
@@ -215,6 +229,55 @@ impl Lexicon for SqliteStore {
         self.conn()?.execute("DELETE FROM fixes WHERE from_text = ?1", params![from]).map_err(err)?;
         Ok(())
     }
+
+    fn snippets(&self) -> Result<Vec<Fix>, CoreError> {
+        let c = self.conn()?;
+        let mut stmt = c.prepare("SELECT phrase, expansion FROM snippets ORDER BY added_at DESC, rowid DESC").map_err(err)?;
+        let rows = stmt
+            .query_map([], |r| Ok(Fix { from: r.get(0)?, to: r.get(1)? }))
+            .map_err(err)?
+            .collect::<Result<_, _>>()
+            .map_err(err)?;
+        Ok(rows)
+    }
+
+    fn add_snippet(&self, snippet: &Fix) -> Result<(), CoreError> {
+        let c = self.conn()?;
+        c.execute("DELETE FROM snippets WHERE phrase = ?1", params![snippet.from]).map_err(err)?;
+        c.execute("INSERT INTO snippets (phrase, expansion) VALUES (?1, ?2)", params![snippet.from, snippet.to]).map_err(err)?;
+        Ok(())
+    }
+
+    fn remove_snippet(&self, trigger: &str) -> Result<(), CoreError> {
+        self.conn()?.execute("DELETE FROM snippets WHERE phrase = ?1", params![trigger]).map_err(err)?;
+        Ok(())
+    }
+}
+
+impl AppRules for SqliteStore {
+    fn rules(&self) -> Result<Vec<AppRule>, CoreError> {
+        let c = self.conn()?;
+        let mut stmt = c.prepare("SELECT pattern, action FROM app_rules ORDER BY added_at DESC, rowid DESC").map_err(err)?;
+        let rows: Vec<(String, String)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(err)?
+            .collect::<Result<_, _>>()
+            .map_err(err)?;
+        // A rule with an action this version doesn't know (e.g. written by a newer build) is skipped.
+        Ok(rows.into_iter().filter_map(|(pattern, a)| AppAction::parse(&a).map(|action| AppRule { pattern, action })).collect())
+    }
+
+    fn add_rule(&self, rule: &AppRule) -> Result<(), CoreError> {
+        let c = self.conn()?;
+        c.execute("DELETE FROM app_rules WHERE pattern = ?1", params![rule.pattern]).map_err(err)?;
+        c.execute("INSERT INTO app_rules (pattern, action) VALUES (?1, ?2)", params![rule.pattern, rule.action.id()]).map_err(err)?;
+        Ok(())
+    }
+
+    fn remove_rule(&self, pattern: &str) -> Result<(), CoreError> {
+        self.conn()?.execute("DELETE FROM app_rules WHERE pattern = ?1", params![pattern]).map_err(err)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -323,6 +386,50 @@ mod tests {
         let s = SqliteStore::open(&path).unwrap();
         assert_eq!(s.list(10).unwrap()[0].text(), "kept.");
         s.add_word("works").unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn snippets_round_trip_with_multiline_text_and_replace_by_phrase() {
+        let l = SqliteStore::open_in_memory().unwrap();
+        l.add_snippet(&Fix { from: "my address".into(), to: "1 George St\nSydney".into() }).unwrap();
+        l.add_snippet(&Fix { from: "My Address".into(), to: "2 Pitt St".into() }).unwrap();
+        assert_eq!(l.snippets().unwrap(), vec![Fix { from: "My Address".into(), to: "2 Pitt St".into() }]);
+        l.remove_snippet("my address").unwrap();
+        assert!(l.snippets().unwrap().is_empty());
+    }
+
+    #[test]
+    fn app_rules_round_trip_newest_first() {
+        let r = SqliteStore::open_in_memory().unwrap();
+        r.add_rule(&AppRule { pattern: "discord".into(), action: AppAction::EnterAfter }).unwrap();
+        r.add_rule(&AppRule { pattern: "valorant".into(), action: AppAction::CopyOnly }).unwrap();
+        let rules = r.rules().unwrap();
+        assert_eq!(rules.iter().map(|x| x.pattern.as_str()).collect::<Vec<_>>(), vec!["valorant", "discord"]);
+        r.remove_rule("DISCORD").unwrap();
+        assert_eq!(r.rules().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn unknown_rule_actions_from_a_newer_build_are_skipped_not_fatal() {
+        let r = SqliteStore::open_in_memory().unwrap();
+        r.conn().unwrap().execute("INSERT INTO app_rules (pattern, action) VALUES ('x', 'teleport')", []).unwrap();
+        assert!(r.rules().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_version_two_database_upgrades_to_three_keeping_everything() {
+        let dir = std::env::temp_dir().join(format!("oratio-store-mig3-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("h.db");
+        {
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(&format!("BEGIN; {} {} PRAGMA user_version = 2; COMMIT;", MIGRATIONS[0], MIGRATIONS[1])).unwrap();
+            c.execute("INSERT INTO words (word) VALUES ('Postiz')", []).unwrap();
+        }
+        let s = SqliteStore::open(&path).unwrap();
+        assert_eq!(s.words().unwrap(), vec!["Postiz"]);
+        s.add_snippet(&Fix { from: "x".into(), to: "y".into() }).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

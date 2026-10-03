@@ -19,6 +19,9 @@ pub const TAIL_GRACE_MS: u64 = 150;
 /// so it gets a leading space.
 pub const CONTINUATION_WINDOW_MS: u64 = 3 * 60 * 1000;
 
+/// Holding Ctrl+Win at least this long means push-to-talk: letting go ends the dictation.
+pub const HOLD_TO_TALK_MS: u64 = 450;
+
 /// Lets the clipboard settle before the paste keystroke is sent.
 pub const PASTE_DELAY_MS: u64 = 50;
 

@@ -13,6 +13,7 @@ use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, PhysicalPosition, WindowEvent};
 use tauri_plugin_global_shortcut::ShortcutState;
 use oratio_core::engine::Engine;
+use oratio_core::apps::AppRules;
 use oratio_core::history::History;
 use oratio_core::lexicon::Lexicon;
 use oratio_core::search::SearchKey;
@@ -34,6 +35,14 @@ fn main() {
             commands::set_enabled,
             commands::set_glass,
             commands::set_search,
+            commands::set_behaviour,
+            commands::list_microphones,
+            commands::set_microphone,
+            commands::list_app_rules,
+            commands::add_app_rule,
+            commands::remove_app_rule,
+            commands::add_snippet,
+            commands::remove_snippet,
             commands::get_autostart,
             commands::set_autostart,
             commands::list_history,
@@ -72,10 +81,12 @@ fn main() {
                 }
             };
             let history: Arc<dyn History> = store.clone();
-            let lexicon: Arc<dyn Lexicon> = store;
+            let lexicon: Arc<dyn Lexicon> = store.clone();
+            let app_rules: Arc<dyn AppRules> = store;
             let _ = history.recover_interrupted();
             app.manage(history.clone());
             app.manage(lexicon.clone());
+            app.manage(app_rules.clone());
 
             // Engine: loads the model off the UI thread; hotkey is ignored until it is ready.
             let (etx, erx) = channel();
@@ -85,7 +96,7 @@ fn main() {
                 Ok(Box::new(WhisperTranscriber::load(&model)?))
             });
             let engine = Engine::spawn(loader, history, lexicon, etx);
-            let ctl = controller::spawn(handle.clone(), engine, erx);
+            let ctl = controller::spawn(handle.clone(), engine, app_rules, erx);
             if let Ok(mut p) = ctl.shared.problems.lock() {
                 p.extend(startup_problems);
             }
@@ -103,7 +114,7 @@ fn main() {
             )?;
 
             // Start/stop is the Ctrl+Win chord, which has to be watched for rather than registered.
-            let (watch_key, on_chord, on_failure) = (ctl.clone(), ctl.clone(), ctl.clone());
+            let (watch_key, on_chord, on_release, on_failure) = (ctl.clone(), ctl.clone(), ctl.clone(), ctl.clone());
             oratio_keys::spawn(
                 move || {
                     watch_key.shared.search_enabled.load(Ordering::Relaxed).then(|| {
@@ -120,6 +131,14 @@ fn main() {
                         on_chord.send(Input::Toggle);
                     }
                     ready
+                },
+                // Hold-to-talk: letting go after a long hold ends the dictation. A quick tap leaves it
+                // running, so tapping to start and tapping to stop still works.
+                move |held_ms| {
+                    let recording = on_release.shared.state.lock().map(|s| matches!(*s, State::Recording | State::CancelPending { .. })).unwrap_or(false);
+                    if recording && held_ms >= config::HOLD_TO_TALK_MS && on_release.shared.hold_to_talk.load(Ordering::Relaxed) {
+                        on_release.send(Input::Toggle);
+                    }
                 },
                 move |msg| {
                     if let Ok(mut p) = on_failure.shared.problems.lock() {

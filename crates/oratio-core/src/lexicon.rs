@@ -22,6 +22,10 @@ pub trait Lexicon: Send + Sync {
     fn fixes(&self) -> Result<Vec<Fix>, CoreError>;
     fn add_fix(&self, fix: &Fix) -> Result<(), CoreError>;
     fn remove_fix(&self, from: &str) -> Result<(), CoreError>;
+    /// Spoken trigger → text to insert (`Fix.from` is the lower-case trigger, `Fix.to` the expansion).
+    fn snippets(&self) -> Result<Vec<Fix>, CoreError>;
+    fn add_snippet(&self, snippet: &Fix) -> Result<(), CoreError>;
+    fn remove_snippet(&self, trigger: &str) -> Result<(), CoreError>;
 }
 
 /// Words shorter than this are too common to be worth hinting.

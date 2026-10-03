@@ -68,6 +68,11 @@ pub fn apply_fixes(text: &str, fixes: &[Fix]) -> String {
     if fixes.is_empty() {
         return text.to_string();
     }
+    // Line by line, so line breaks (spoken "new line", or a snippet's own) are preserved.
+    text.split('\n').map(|line| apply_fixes_to_line(line, fixes)).collect::<Vec<_>>().join("\n")
+}
+
+fn apply_fixes_to_line(text: &str, fixes: &[Fix]) -> String {
     let mut rules: Vec<(Vec<&str>, &str)> = fixes.iter().map(|f| (f.from.split(' ').collect(), f.to.as_str())).collect();
     rules.sort_by_key(|(from, _)| std::cmp::Reverse(from.len()));
 

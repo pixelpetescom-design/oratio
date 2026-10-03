@@ -16,7 +16,8 @@ use tauri_plugin_opener::OpenerExt;
 use oratio_audio::Capture;
 use oratio_core::engine::{Command, Engine, Event};
 use oratio_core::polish::continuation;
-use oratio_core::search::{google_url, query};
+use oratio_core::apps::{action_for, AppAction, AppRules};
+use oratio_core::search::{custom_url, query, route, url, Engine as SearchEngine};
 use oratio_core::session::{step, Effect, Input, State};
 
 pub enum Msg {
@@ -36,6 +37,16 @@ pub struct Shared {
     pub search_key: AtomicU8,
     /// Set when the search key was held at the start or stop press of the current dictation.
     pub search_pending: AtomicBool,
+    /// "Spoken commands": new line, full stop, scratch that, press enter…
+    pub spoken_commands: AtomicBool,
+    /// Holding Ctrl+Win records only while held.
+    pub hold_to_talk: AtomicBool,
+    /// Default voice-search engine id ("google", "youtube"…, or "custom").
+    pub search_engine: Mutex<String>,
+    /// Address template for the "custom" engine, with {q} for the query.
+    pub search_custom: Mutex<String>,
+    /// Chosen microphone (None = system default).
+    pub mic: Mutex<Option<String>>,
 }
 
 #[derive(Clone)]
@@ -64,6 +75,8 @@ struct Finished {
     pasted: bool,
     /// The text was sent to a Google search instead of being typed.
     searched: bool,
+    /// Typing is switched off for the focused app, so the text was only copied.
+    copy_only: bool,
     /// From pressing Stop until the text was ready (before pasting).
     elapsed_ms: Option<u64>,
 }
@@ -71,6 +84,7 @@ struct Finished {
 struct Controller {
     app: AppHandle,
     engine: Engine,
+    app_rules: Arc<dyn AppRules>,
     shared: Arc<Shared>,
     tx: Sender<Msg>,
     clock: Instant,
@@ -86,12 +100,17 @@ struct Controller {
 
 /// Starts the controller thread. `engine_events` is the receiving end of the
 /// channel the engine was spawned with.
-pub fn spawn(app: AppHandle, engine: Engine, engine_events: std::sync::mpsc::Receiver<Event>) -> Handle {
+pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, engine_events: std::sync::mpsc::Receiver<Event>) -> Handle {
     let (tx, rx) = channel::<Msg>();
     let shared = Arc::new(Shared { state: Mutex::new(State::Loading), problems: Mutex::new(vec![]), auto_paste: AtomicBool::new(true),
         search_enabled: AtomicBool::new(false),
         search_key: AtomicU8::new(0),
         search_pending: AtomicBool::new(false),
+        spoken_commands: AtomicBool::new(true),
+        hold_to_talk: AtomicBool::new(false),
+        search_engine: Mutex::new("google".into()),
+        search_custom: Mutex::new(String::new()),
+        mic: Mutex::new(None),
     });
 
     let forward = tx.clone();
@@ -106,6 +125,7 @@ pub fn spawn(app: AppHandle, engine: Engine, engine_events: std::sync::mpsc::Rec
     let mut ctl = Controller {
         app,
         engine,
+        app_rules,
         shared: shared.clone(),
         tx: tx.clone(),
         clock: Instant::now(),
@@ -148,9 +168,10 @@ impl Controller {
         match fx {
             Effect::StartRecording => {
                 let started_at_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
-                self.engine.send(Command::Begin { started_at_ms });
+                self.engine.send(Command::Begin { started_at_ms, spoken_commands: self.shared.spoken_commands.load(Ordering::Relaxed) });
                 let audio = self.engine.sender();
-                match Capture::start(move |chunk| {
+                let mic = self.shared.mic.lock().ok().and_then(|m| m.clone());
+                match Capture::start(mic, move |chunk| {
                     let _ = audio.send(Command::Audio(chunk));
                 }) {
                     Ok(c) => self.capture = Some(c),
@@ -255,44 +276,74 @@ impl Controller {
             Event::Segment { text, .. } => {
                 let _ = self.app.emit("segment", text);
             }
-            Event::Finished { text, .. } => {
+            Event::Finished { text, enter, .. } => {
                 let elapsed_ms = self.stopped_at.take().map(|t| t.elapsed().as_millis() as u64);
                 let search = self.shared.search_pending.swap(false, Ordering::Relaxed)
                     && self.shared.search_enabled.load(Ordering::Relaxed)
                     && !text.is_empty();
-                let mut searched = false;
-                let mut copied = false;
-                let mut pasted = false;
+                let (mut searched, mut copied, mut pasted, mut copy_only) = (false, false, false, false);
                 if search {
-                    match self.app.opener().open_url(google_url(&query(&text)), None::<&str>) {
+                    let address = self.search_address(&text);
+                    match self.app.opener().open_url(address, None::<&str>) {
                         Ok(()) => searched = true,
                         Err(e) => self.problem(format!("Could not open your browser ({e}). The text is saved in history.")),
                     }
                 } else {
-                    // Clipboard first: the text is the product, everything else is bookkeeping.
-                    // When typing into an app straight after a previous dictation, lead with a space so the
-                    // two don't run together; a manual paste stays clean.
+                    // What the focused app wants (per-app rules): don't type into it, or press Enter after.
+                    let rule = oratio_window::active_app()
+                        .and_then(|focused| self.app_rules.rules().ok().and_then(|rules| action_for(&rules, &focused)));
                     let auto_paste = self.shared.auto_paste.load(Ordering::Relaxed);
-                    let continuing = auto_paste && self.last_paste.is_some_and(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS));
-                    let clip = if continuing { continuation(&text) } else { text.clone() };
-                    copied = !text.is_empty() && self.app.clipboard().write_text(clip).is_ok();
-                    if !text.is_empty() && !copied {
-                        self.problem("Could not write to the clipboard; the text is saved in history.".into());
+                    copy_only = auto_paste && rule == Some(AppAction::CopyOnly);
+                    let type_it = auto_paste && !copy_only;
+                    let press_enter = enter || rule == Some(AppAction::EnterAfter);
+
+                    if !text.is_empty() {
+                        // Clipboard first: the text is the product, everything else is bookkeeping.
+                        // When typing straight after a previous dictation, lead with a space so the two
+                        // don't run together; a manual paste stays clean.
+                        let continuing = type_it && self.last_paste.is_some_and(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS));
+                        let clip = if continuing { continuation(&text) } else { text.clone() };
+                        copied = self.app.clipboard().write_text(clip).is_ok();
+                        if !copied {
+                            self.problem("Could not write to the clipboard; the text is saved in history.".into());
+                        }
                     }
-                    if copied && auto_paste {
+                    if type_it && (copied || (text.is_empty() && enter)) {
                         // Still holding Ctrl+Win would turn the paste into Win+V (clipboard history).
                         oratio_keys::wait_for_chord_release(Duration::from_millis(1500));
                         std::thread::sleep(Duration::from_millis(PASTE_DELAY_MS));
-                        match oratio_paste::paste_from_clipboard() {
+                        let typed = if copied { oratio_paste::paste_from_clipboard() } else { Ok(()) };
+                        match typed {
                             Ok(()) => {
-                                pasted = true;
-                                self.last_paste = Some(Instant::now());
+                                pasted = copied;
+                                if copied {
+                                    self.last_paste = Some(Instant::now());
+                                }
+                                if press_enter {
+                                    if let Err(e) = oratio_paste::press_enter() {
+                                        self.problem(format!("Could not press Enter ({e})."));
+                                    }
+                                }
                             }
                             Err(e) => self.problem(format!("Could not type into the active app ({e}). The text is on your clipboard.")),
                         }
                     }
                 }
-                let _ = self.app.emit("finished", Finished { text, copied, pasted, searched, elapsed_ms });
+                let _ = self.app.emit("finished", Finished { text, copied, pasted, searched, copy_only, elapsed_ms });
+                let _ = self.app.emit("history", ());
+                self.apply(Input::Finished);
+                self.hide_overlay_later();
+            }
+            Event::Scratched => {
+                // "Scratch that": undo the previous dictation's paste, if it is recent enough to be the thing on screen.
+                let recent = self.last_paste.take().is_some_and(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS));
+                let undone = recent && self.shared.auto_paste.load(Ordering::Relaxed) && {
+                    oratio_keys::wait_for_chord_release(Duration::from_millis(1500));
+                    oratio_paste::undo().is_ok()
+                };
+                self.stopped_at = None;
+                self.shared.search_pending.store(false, Ordering::Relaxed);
+                let _ = self.app.emit("scratched", undone);
                 let _ = self.app.emit("history", ());
                 self.apply(Input::Finished);
                 self.hide_overlay_later();
@@ -309,6 +360,22 @@ impl Controller {
             }
             Event::Warning(m) => self.problem(m),
         }
+    }
+
+    /// Where a voice search goes: the chosen engine (or custom address), unless the spoken words
+    /// start with an engine name ("youtube cute cats").
+    fn search_address(&self, text: &str) -> String {
+        let choice = self.shared.search_engine.lock().map(|e| e.clone()).unwrap_or_default();
+        let custom = self.shared.search_custom.lock().map(|c| c.clone()).unwrap_or_default();
+        let default = SearchEngine::parse(&choice).unwrap_or(SearchEngine::Google);
+        let (engine, q) = route(&query(text), default);
+        let spoken_engine = engine != default;
+        if choice == "custom" && !spoken_engine {
+            if let Some(address) = custom_url(&custom, &q) {
+                return address;
+            }
+        }
+        url(engine, &q)
     }
 
     fn problem(&self, message: String) {

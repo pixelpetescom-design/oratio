@@ -1,5 +1,6 @@
 //! In-memory fakes of the ports, shared by unit tests.
 
+use crate::apps::{AppRule, AppRules};
 use crate::history::{Entry, History, RecordingId, Status};
 use crate::lexicon::{Fix, Lexicon};
 use crate::CoreError;
@@ -71,6 +72,7 @@ impl History for MemHistory {
 pub struct MemLexicon {
     pub words: Mutex<Vec<String>>,
     pub fixes: Mutex<Vec<Fix>>,
+    pub snippets: Mutex<Vec<Fix>>,
 }
 
 impl Lexicon for MemLexicon {
@@ -99,6 +101,40 @@ impl Lexicon for MemLexicon {
     }
     fn remove_fix(&self, from: &str) -> Result<(), CoreError> {
         self.fixes.lock().unwrap().retain(|x| x.from != from);
+        Ok(())
+    }
+    fn snippets(&self) -> Result<Vec<Fix>, CoreError> {
+        Ok(self.snippets.lock().unwrap().clone())
+    }
+    fn add_snippet(&self, snippet: &Fix) -> Result<(), CoreError> {
+        let mut s = self.snippets.lock().unwrap();
+        s.retain(|x| x.from != snippet.from);
+        s.push(snippet.clone());
+        Ok(())
+    }
+    fn remove_snippet(&self, trigger: &str) -> Result<(), CoreError> {
+        self.snippets.lock().unwrap().retain(|x| x.from != trigger);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+pub struct MemRules {
+    pub rules: Mutex<Vec<AppRule>>,
+}
+
+impl AppRules for MemRules {
+    fn rules(&self) -> Result<Vec<AppRule>, CoreError> {
+        Ok(self.rules.lock().unwrap().clone())
+    }
+    fn add_rule(&self, rule: &AppRule) -> Result<(), CoreError> {
+        let mut r = self.rules.lock().unwrap();
+        r.retain(|x| x.pattern != rule.pattern);
+        r.insert(0, rule.clone());
+        Ok(())
+    }
+    fn remove_rule(&self, pattern: &str) -> Result<(), CoreError> {
+        self.rules.lock().unwrap().retain(|x| x.pattern != pattern);
         Ok(())
     }
 }

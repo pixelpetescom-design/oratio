@@ -17,15 +17,21 @@ fn audio_err(e: impl std::fmt::Display) -> CoreError {
     CoreError::Audio(e.to_string())
 }
 
+/// Names of the microphones the system offers (for a picker).
+pub fn input_devices() -> Vec<String> {
+    cpal::default_host().input_devices().map(|devices| devices.filter_map(|d| d.name().ok()).collect()).unwrap_or_default()
+}
+
 impl Capture {
-    /// Opens the default input device. `sink` is called on the audio thread, so it must not block.
-    pub fn start(sink: impl FnMut(Vec<f32>) + Send + 'static) -> Result<Capture, CoreError> {
+    /// Opens the microphone called `device` (or the system default when `None`, or when that one
+    /// is no longer plugged in). `sink` is called on the audio thread, so it must not block.
+    pub fn start(device: Option<String>, sink: impl FnMut(Vec<f32>) + Send + 'static) -> Result<Capture, CoreError> {
         let (stop_tx, stop_rx) = channel::<()>();
         let (ready_tx, ready_rx) = channel::<Result<(), CoreError>>();
         // cpal streams are not `Send`, so the stream lives and dies on its own thread.
         let handle = std::thread::Builder::new()
             .name("oratio-capture".into())
-            .spawn(move || match open(sink) {
+            .spawn(move || match open(device.as_deref(), sink) {
                 Ok(stream) => {
                     let _ = ready_tx.send(Ok(()));
                     let _ = stop_rx.recv();
@@ -53,8 +59,15 @@ impl Drop for Capture {
     }
 }
 
-fn open(sink: impl FnMut(Vec<f32>) + Send + 'static) -> Result<cpal::Stream, CoreError> {
-    let device = cpal::default_host().default_input_device().ok_or_else(|| CoreError::Audio("no microphone found".into()))?;
+fn pick_device(wanted: Option<&str>) -> Option<cpal::Device> {
+    let host = cpal::default_host();
+    wanted
+        .and_then(|name| host.input_devices().ok()?.find(|d| d.name().is_ok_and(|n| n == name)))
+        .or_else(|| host.default_input_device())
+}
+
+fn open(wanted: Option<&str>, sink: impl FnMut(Vec<f32>) + Send + 'static) -> Result<cpal::Stream, CoreError> {
+    let device = pick_device(wanted).ok_or_else(|| CoreError::Audio("no microphone found".into()))?;
     let supported = device.default_input_config().map_err(audio_err)?;
     eprintln!(
         "[oratio] microphone: {} ({} Hz, {} ch, {:?})",

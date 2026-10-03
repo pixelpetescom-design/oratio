@@ -74,19 +74,60 @@
         <h2 class="sub-h">Corrections</h2>
         <div id="fixes" class="chips"></div>
       </div>
+      <div class="card">
+        <h2>Snippets</h2>
+        <p class="hint">Say a phrase and Oratio types longer text instead, e.g. “my address” → your full address.</p>
+        <form id="snippetform">
+          <input id="snippetTrigger" placeholder="When I say… (e.g. my address)" autocomplete="off">
+          <textarea id="snippetText" rows="2" placeholder="…type this (line breaks are kept)"></textarea>
+          <button class="btn primary small">Add snippet</button>
+        </form>
+        <div id="snippets" class="chips"></div>
+      </div>
     </section>
 
     <!-- Settings -->
     <section id="view-settings" class="view" hidden>
       <div class="card options">
+        <h2>Dictation</h2>
         <label class="switch"><input type="checkbox" id="enabled" checked><span class="track"><span class="knob"></span></span><span class="text">Dictation on<span class="sub">Off = no microphone and no hotkey</span></span></label>
         <label class="switch"><input type="checkbox" id="autopaste" checked><span class="track"><span class="knob"></span></span><span class="text">Type into the active app<span class="sub">Otherwise just copy to the clipboard</span></span></label>
+        <label class="switch"><input type="checkbox" id="holdtalk"><span class="track"><span class="knob"></span></span><span class="text">Hold to talk<span class="sub">Hold Ctrl + Win while you speak and let go to finish. A quick tap still starts and stops</span></span></label>
+        <label class="switch"><input type="checkbox" id="spoken" checked><span class="track"><span class="knob"></span></span><span class="text">Spoken commands<span class="sub">Say “new line”, “full stop”, “question mark”, “scratch that” (undo) or end with “press enter”</span></span></label>
         <label class="switch"><input type="checkbox" id="autostart"><span class="track"><span class="knob"></span></span><span class="text">Start with Windows<span class="sub">Runs quietly in the tray, always ready</span></span></label>
+      </div>
+
+      <div class="card options">
+        <h2>Voice search</h2>
         <div class="switch-group">
-          <label class="switch"><input type="checkbox" id="search"><span class="track"><span class="knob"></span></span><span class="text">Voice search<span class="sub">Hold the key below with Ctrl + Win to search Google for what you say, instead of typing it</span></span></label>
+          <label class="switch"><input type="checkbox" id="search"><span class="track"><span class="knob"></span></span><span class="text">Voice search<span class="sub">Hold the key below with Ctrl + Win to search for what you say instead of typing it</span></span></label>
           <div class="seg seg-2" id="searchKey" role="group" aria-label="Search key"><button data-key="shift">Shift</button><button data-key="alt">Alt</button></div>
+          <select id="searchEngine" aria-label="Search engine">
+            <option value="google">Google</option><option value="bing">Bing</option><option value="duckduckgo">DuckDuckGo</option>
+            <option value="youtube">YouTube</option><option value="maps">Google Maps</option><option value="wikipedia">Wikipedia</option>
+            <option value="custom">Custom address…</option>
+          </select>
+          <input id="searchCustom" placeholder="https://example.com/search?q={q}" autocomplete="off" hidden>
+          <p class="hint">Tip: start your sentence with an engine name — “YouTube cute cats” or “Maps coffee near me” — to pick one by voice.</p>
         </div>
       </div>
+
+      <div class="card options">
+        <h2>Microphone</h2>
+        <select id="mic" aria-label="Microphone"></select>
+      </div>
+
+      <div class="card options">
+        <h2>Per-app behaviour</h2>
+        <p class="hint">Choose what happens in specific apps. Match part of the app’s name or window title, e.g. “discord” or “valorant”.</p>
+        <form id="ruleform">
+          <input id="rulePattern" placeholder="App name contains… (e.g. discord)" autocomplete="off">
+          <select id="ruleAction" aria-label="Action"><option value="enter_after">Press Enter after typing</option><option value="copy_only">Don’t type — just copy</option></select>
+          <button class="btn primary small">Add</button>
+        </form>
+        <div id="rules" class="chips"></div>
+      </div>
+
       <div class="card window-opts">
         <div class="opt-title">Window <span class="sub">See-through styles need Windows; Soft is the lightest blur</span></div>
         <div class="seg" id="glassStyle" role="group" aria-label="Window style">

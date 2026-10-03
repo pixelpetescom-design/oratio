@@ -33,6 +33,7 @@ listen("level", ({ payload }) => wave.setLevel(payload));
 
 listen("finished", ({ payload }) => {
   if (!payload.text) show("idle", "No speech detected");
-  else show("idle", payload.searched ? "Searching Google ✓" : payload.pasted ? "Typed into your app ✓" + took(payload) : payload.copied ? "Copied — ready to paste" + took(payload) : "Done (clipboard unavailable — see history)");
+  else show("idle", payload.searched ? "Searching ✓" : payload.copy_only ? "Copied — typing off for this app" : payload.pasted ? "Typed into your app ✓" + took(payload) : payload.copied ? "Copied — ready to paste" + took(payload) : "Done (clipboard unavailable — see history)");
 });
+listen("scratched", ({ payload }) => show("idle", payload ? "Undone ✓" : "Nothing to undo"));
 listen("problem", () => show("idle", "Something went wrong — open Oratio"));
