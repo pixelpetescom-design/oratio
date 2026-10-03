@@ -21,6 +21,8 @@ pub enum Engine {
     YouTube,
     Maps,
     Wikipedia,
+    /// Google Images, large pictures only.
+    Images,
 }
 
 impl Engine {
@@ -32,6 +34,7 @@ impl Engine {
             "youtube" => Engine::YouTube,
             "maps" => Engine::Maps,
             "wikipedia" => Engine::Wikipedia,
+            "images" | "image" => Engine::Images,
             _ => return None,
         })
     }
@@ -44,6 +47,7 @@ impl Engine {
             Engine::YouTube => "https://www.youtube.com/results?search_query={q}",
             Engine::Maps => "https://www.google.com/maps/search/{q}",
             Engine::Wikipedia => "https://en.wikipedia.org/w/index.php?search={q}",
+            Engine::Images => "https://www.google.com/search?tbm=isch&tbs=isz:l&q={q}",
         }
     }
 }
@@ -110,6 +114,8 @@ mod tests {
         assert_eq!(url(Engine::YouTube, "cute cats"), "https://www.youtube.com/results?search_query=cute+cats");
         assert_eq!(url(Engine::Maps, "coffee near me"), "https://www.google.com/maps/search/coffee+near+me");
         assert_eq!(url(Engine::Wikipedia, "Sydney"), "https://en.wikipedia.org/w/index.php?search=Sydney");
+        assert_eq!(url(Engine::Images, "red panda"), "https://www.google.com/search?tbm=isch&tbs=isz:l&q=red+panda");
+        assert_eq!(route("images red panda", Engine::Google), (Engine::Images, "red panda".into()));
         assert_eq!(Engine::parse("DuckDuckGo"), Some(Engine::DuckDuckGo));
         assert_eq!(Engine::parse("altavista"), None);
     }
