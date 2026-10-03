@@ -486,6 +486,11 @@ document.querySelectorAll("#posGrid button").forEach((b) => (b.onclick = async (
   applyOverlayPosition();
   invoke("preview_overlay");
 }));
+listen("overlay-moved", ({ payload: [x, y] }) => {
+  overlayPos = { kind: "custom", x, y };
+  localStorage.setItem("overlayPos", JSON.stringify(overlayPos));
+  paintOverlayGrid();
+});
 $("moveDone").onclick = async () => {
   const [x, y] = await invoke("end_move_overlay");
   overlayPos = { kind: "custom", x, y };

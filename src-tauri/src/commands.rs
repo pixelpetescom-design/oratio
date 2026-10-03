@@ -253,11 +253,10 @@ pub fn preview_overlay(app: AppHandle, ctl: State<'_, Handle>) {
     let Some(window) = app.get_webview_window("overlay") else { return };
     crate::overlay_window::position(&app, &ctl.shared);
     let _ = window.show();
-    let _ = window.set_ignore_cursor_events(true);
     let _ = app.emit("overlay-preview", ());
     let shared = ctl.shared.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(1800));
+        std::thread::sleep(std::time::Duration::from_millis(8000));
         let busy = shared.state.lock().map(|s| !matches!(*s, Phase::Idle | Phase::Off)).unwrap_or(true);
         if !busy && !shared.overlay_moving.load(Ordering::Relaxed) {
             let _ = window.hide();
@@ -272,7 +271,6 @@ pub fn begin_move_overlay(app: AppHandle, ctl: State<'_, Handle>) {
     ctl.shared.overlay_moving.store(true, Ordering::Relaxed);
     crate::overlay_window::position(&app, &ctl.shared);
     let _ = window.show();
-    let _ = window.set_ignore_cursor_events(false);
     let _ = app.emit("overlay-move", true);
 }
 
@@ -285,10 +283,36 @@ pub fn end_move_overlay(app: AppHandle, ctl: State<'_, Handle>) -> Result<(i32, 
     if let Ok(mut p) = ctl.shared.overlay_pos.lock() {
         *p = Position::Custom(at.x, at.y);
     }
-    let _ = window.set_ignore_cursor_events(true);
     let _ = window.hide();
     let _ = app.emit("overlay-move", false);
     Ok((at.x, at.y))
+}
+
+/// Right-click drag on the wave, step 1: where is the overlay right now (physical pixels)?
+#[tauri::command]
+pub fn grab_overlay(app: AppHandle) -> Result<(i32, i32), String> {
+    let window = app.get_webview_window("overlay").ok_or("overlay window missing")?;
+    let at = window.outer_position().map_err(|e| e.to_string())?;
+    Ok((at.x, at.y))
+}
+
+/// Right-click drag, step 2: follow the mouse.
+#[tauri::command]
+pub fn place_overlay(app: AppHandle, x: i32, y: i32) {
+    if let Some(window) = app.get_webview_window("overlay") {
+        let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+}
+
+/// Right-click drag, step 3: remember where it was dropped and tell the main window.
+#[tauri::command]
+pub fn drop_overlay(app: AppHandle, ctl: State<'_, Handle>) {
+    let Some(window) = app.get_webview_window("overlay") else { return };
+    let Ok(at) = window.outer_position() else { return };
+    if let Ok(mut p) = ctl.shared.overlay_pos.lock() {
+        *p = Position::Custom(at.x, at.y);
+    }
+    let _ = app.emit("overlay-moved", (at.x, at.y));
 }
 
 // ---- speech models ---------------------------------------------------------------------------

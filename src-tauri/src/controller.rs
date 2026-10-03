@@ -253,10 +253,6 @@ impl Controller {
             if let Some(w) = self.app.get_webview_window("overlay") {
                 crate::overlay_window::position(&self.app, &self.shared);
                 let _ = w.show();
-                // Click-through must be applied once the native window exists, i.e. after show().
-                if !self.shared.overlay_moving.load(Ordering::Relaxed) {
-                    let _ = w.set_ignore_cursor_events(true);
-                }
             }
         }
     }

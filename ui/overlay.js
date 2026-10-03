@@ -45,3 +45,24 @@ listen("overlay-move", ({ payload: on }) => {
   if (on) show("listening", "Drag me, then press Done");
 });
 listen("overlay-preview", () => show("idle", "Wave appears here"));
+
+// Right-click and drag the wave anywhere; it remembers where you let go.
+const { invoke } = window.__TAURI__.core;
+let grab = null;
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+document.addEventListener("pointerdown", async (e) => {
+  if (e.button !== 2) return;
+  document.body.setPointerCapture?.(e.pointerId);
+  const [x, y] = await invoke("grab_overlay");
+  grab = { x, y, sx: e.screenX, sy: e.screenY };
+});
+document.addEventListener("pointermove", (e) => {
+  if (!grab) return;
+  const k = window.devicePixelRatio || 1;
+  invoke("place_overlay", { x: Math.round(grab.x + (e.screenX - grab.sx) * k), y: Math.round(grab.y + (e.screenY - grab.sy) * k) });
+});
+document.addEventListener("pointerup", (e) => {
+  if (e.button !== 2 || !grab) return;
+  grab = null;
+  invoke("drop_overlay");
+});
