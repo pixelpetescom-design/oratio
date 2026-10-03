@@ -9,7 +9,7 @@
 use crate::history::{History, RecordingId};
 use crate::lexicon::{Fix, Lexicon};
 use crate::commands;
-use crate::polish::{collapse_repeats, polish};
+use crate::polish::{collapse_repeats, polish, LOOP_RUN};
 use crate::vocab::apply_fixes;
 use crate::spelling::to_australian;
 use crate::segmenter::{normalize, rms, Segmenter, SegmenterConfig, SAMPLE_RATE};
@@ -26,6 +26,8 @@ pub enum Command {
     Audio(Vec<f32>),
     Finish,
     Discard,
+    /// Load a different speech model while running. Only sent when no dictation is in progress.
+    SwapModel(Loader),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,6 +47,8 @@ pub enum Event {
     Failed { reason: String },
     /// Something went wrong but no text was lost.
     Warning(String),
+    /// The new model could not be loaded; the previous one is still in use.
+    ModelSwapFailed(String),
 }
 
 pub struct Engine {
@@ -52,7 +56,7 @@ pub struct Engine {
     handle: Option<JoinHandle<()>>,
 }
 
-type Loader = Box<dyn FnOnce() -> Result<Box<dyn Transcriber>, CoreError> + Send>;
+pub type Loader = Box<dyn FnOnce() -> Result<Box<dyn Transcriber>, CoreError> + Send>;
 
 impl Engine {
     pub fn spawn(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, events: Sender<Event>) -> Engine {
@@ -113,11 +117,11 @@ fn recognise(transcriber: &mut dyn Transcriber, history: &dyn History, take: &mu
         );
         match result {
             Ok(Ok(text)) => {
-                // A model stuck in a loop on near-silence repeats one phrase; keep one copy, or drop a long loop entirely.
+                // A model stuck in a loop repeats one phrase: keep one copy of a short repeat, cut a long loop out
+                // entirely (the real words around it stay).
                 let (text, longest_run) = collapse_repeats(text.trim());
-                if longest_run >= 8 {
-                    eprintln!("[oratio] discarded a repeating hallucination ({longest_run} repeats of {text:?})");
-                    return;
+                if longest_run >= LOOP_RUN {
+                    eprintln!("[oratio] removed a repeating hallucination ({longest_run} repeats)");
                 }
                 if text.is_empty() {
                     return;
@@ -229,6 +233,14 @@ fn run(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, rx: R
                 }
                 emit(Event::Finished { id: Some(t.id), text, enter: parsed.enter });
             }
+            Command::SwapModel(load) => match catch_unwind(AssertUnwindSafe(load)) {
+                Ok(Ok(new)) => {
+                    transcriber = new;
+                    emit(Event::Ready);
+                }
+                Ok(Err(e)) => emit(Event::ModelSwapFailed(e.to_string())),
+                Err(_) => emit(Event::ModelSwapFailed("the model loader crashed".into())),
+            },
             Command::Discard => {
                 segmenter = Segmenter::new(SegmenterConfig::default());
                 if let Some(t) = take.take() {
@@ -450,9 +462,37 @@ mod tests {
     }
 
     #[test]
-    fn a_hallucination_loop_is_discarded_not_typed() {
+    fn a_pure_hallucination_loop_is_dropped_and_a_loop_inside_real_words_is_cut_out() {
         let looped: &'static str = Box::leak("Listening. ".repeat(40).into_boxed_str());
         let e = dictate(vec![Ok(looped)], Arc::new(MemLexicon::default()), true);
         assert_eq!(e, Event::Finished { id: None, text: String::new(), enter: false });
+    }
+
+    #[test]
+    fn real_words_around_a_loop_are_kept() {
+        let said: &'static str = Box::leak(format!("Peter space. {}Then my address.", "The name of the ".repeat(40)).into_boxed_str());
+        let e = dictate(vec![Ok(said)], Arc::new(MemLexicon::default()), true);
+        assert!(matches!(e, Event::Finished { ref text, .. } if text == "Peter space. Then my address."), "{e:?}");
+    }
+
+    #[test]
+    fn swapping_models_switches_the_recogniser_and_a_failed_swap_keeps_the_old_one() {
+        let (eng, rx, _, _) = start_with_lexicon(vec![Ok("from the first model")], Arc::new(MemHistory::default()), Arc::new(MemLexicon::default()));
+        // A failing swap reports and changes nothing.
+        eng.send(Command::SwapModel(Box::new(|| Err(CoreError::Stt("corrupt file".into())))));
+        assert!(matches!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), Event::ModelSwapFailed(m) if m.contains("corrupt")));
+        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true });
+        eng.send(Command::Audio(tone(500)));
+        eng.send(Command::Finish);
+        assert!(matches!(until_finished(&rx).1, Event::Finished { ref text, .. } if text == "From the first model."));
+
+        // A good swap announces Ready and the next dictation uses the new model.
+        let new = Fake(vec![Ok("from the second model")], Arc::default());
+        eng.send(Command::SwapModel(Box::new(move || Ok(Box::new(new) as Box<dyn Transcriber>))));
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), Event::Ready);
+        eng.send(Command::Begin { started_at_ms: 2, spoken_commands: true });
+        eng.send(Command::Audio(tone(500)));
+        eng.send(Command::Finish);
+        assert!(matches!(until_finished(&rx).1, Event::Finished { ref text, .. } if text == "From the second model."));
     }
 }

@@ -29,6 +29,8 @@ pub enum State {
 pub enum Input {
     EngineReady,
     EngineFailed,
+    /// A new speech model is being loaded (only starts from Idle/Off).
+    EngineLoading,
     Enable,
     Disable,
     Toggle,
@@ -73,6 +75,7 @@ pub fn step(state: State, input: Input, now: Millis, cancel_grace: Millis) -> (S
         (Recording | CancelPending { .. }, EngineFailed) => (Unavailable, Some(Abort)),
         (_, EngineFailed) => (Unavailable, None),
 
+        (Idle | Off, EngineLoading) => (Loading, None),
         (Idle, Toggle) => (Recording, Some(StartRecording)),
         // Only switch off when nothing is in flight; the UI offers the switch only then.
         (Idle, Disable) => (Off, None),
@@ -194,6 +197,15 @@ mod tests {
         assert_eq!(run(State::Finalizing, &[(Input::Disable, 0)]).0, State::Finalizing);
         assert_eq!(run(State::Loading, &[(Input::Disable, 0)]).0, State::Loading);
         assert_eq!(run(State::Idle, &[(Input::Enable, 0)]).0, State::Idle);
+    }
+
+    #[test]
+    fn swapping_the_model_reloads_only_when_nothing_is_in_flight() {
+        assert_eq!(run(State::Idle, &[(Input::EngineLoading, 0), (Input::Toggle, 1)]).0, State::Loading, "hotkey ignored while loading");
+        assert_eq!(run(State::Idle, &[(Input::EngineLoading, 0), (Input::EngineReady, 1)]).0, State::Idle);
+        assert_eq!(run(State::Off, &[(Input::EngineLoading, 0)]).0, State::Loading);
+        assert_eq!(run(State::Recording, &[(Input::EngineLoading, 0)]).0, State::Recording);
+        assert_eq!(run(State::Finalizing, &[(Input::EngineLoading, 0)]).0, State::Finalizing);
     }
 
     #[test]

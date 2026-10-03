@@ -98,6 +98,7 @@ let liveText = "";
 const latencies = []; // seconds from Stop to text, this session
 
 function renderState(kind, remainingMs) {
+  if (kind === "loading") appliedPreference = false;
   phase = kind;
   wave.setMode(WAVE_MODES[kind] ?? "idle");
   $("dot").className = `dot ${kind}`;
@@ -494,6 +495,149 @@ $("moveDone").onclick = async () => {
   toast("Wave position saved");
 };
 applyOverlayPosition();
+
+// Speech models: installed ones work offline; "Check for new models" is the only thing that goes online.
+let models = [];
+const downloads = {}; // file -> { done, total }
+const mb = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)} GB` : `${n} MB`);
+const canSwitch = () => phase === "idle" || phase === "off";
+
+function renderModels() {
+  const list = $("models");
+  list.replaceChildren();
+  if (!models.length) {
+    const p = document.createElement("div");
+    p.className = "model-note";
+    p.textContent = "No models found.";
+    list.append(p);
+    return;
+  }
+  for (const m of models) {
+    const row = document.createElement("div");
+    row.className = `model-row${m.active ? " active" : ""}`;
+    const top = document.createElement("div");
+    top.className = "top";
+    const title = document.createElement("span");
+    title.className = "title";
+    title.textContent = m.name;
+    title.title = m.file;
+    const actions = document.createElement("span");
+    actions.className = "actions";
+    const dl = downloads[m.file];
+    if (dl) {
+      const cancel = document.createElement("button");
+      cancel.className = "btn outline small";
+      cancel.textContent = "Cancel";
+      cancel.onclick = () => invoke("cancel_model_download");
+      actions.append(cancel);
+    } else if (m.installed && !m.active) {
+      const use = document.createElement("button");
+      use.className = "btn primary small";
+      use.textContent = "Use";
+      use.disabled = !canSwitch();
+      use.title = canSwitch() ? "" : "Finish dictating first";
+      use.onclick = async () => {
+        try { await invoke("use_model", { file: m.file }); toast("Loading the speech model…"); } catch (e) { toast(String(e), "bad"); }
+      };
+      actions.append(use);
+      if (!m.bundled) {
+        const del = document.createElement("button");
+        del.className = "btn outline danger small";
+        del.textContent = "Delete";
+        del.onclick = async () => {
+          try { await invoke("delete_model", { file: m.file }); toast("Model deleted"); } catch (e) { toast(String(e), "bad"); }
+          refreshModels();
+        };
+        actions.append(del);
+      }
+    } else if (!m.installed) {
+      const get = document.createElement("button");
+      get.className = "btn primary small";
+      get.textContent = `Download ${mb(m.size_mb)}`;
+      get.onclick = async () => {
+        downloads[m.file] = { done: 0, total: m.size_mb * 1_000_000 };
+        renderModels();
+        try { await invoke("download_model", { file: m.file }); } catch (e) { delete downloads[m.file]; toast(String(e), "bad"); renderModels(); }
+      };
+      actions.append(get);
+    }
+    top.append(title, actions);
+
+    const tags = document.createElement("div");
+    tags.className = "tags";
+    const add = (text, cls = "") => { const t = document.createElement("span"); t.className = `tag ${cls}`.trim(); t.textContent = text; tags.append(t); };
+    if (m.active) add("In use", "use");
+    if (m.is_new) add("New", "new");
+    if (m.recommended) add("Recommended", "rec");
+    if (m.english_only) add("English");
+    if (m.quant) add(m.quant);
+    add(mb(m.size_mb));
+    row.append(top, tags);
+
+    if (dl) {
+      const bar = document.createElement("div");
+      bar.className = "progress";
+      const fill = document.createElement("i");
+      fill.style.width = `${dl.total ? Math.min(100, (dl.done / dl.total) * 100) : 0}%`;
+      fill.dataset.file = m.file;
+      bar.append(fill);
+      row.append(bar);
+    }
+    list.append(row);
+  }
+}
+
+async function refreshModels() {
+  try {
+    const installed = await invoke("list_models");
+    // Keep what a previous check found, but refresh which of those are installed/in use.
+    const byFile = new Map(installed.map((m) => [m.file, m]));
+    const merged = models.map((m) => (byFile.has(m.file) ? { ...m, ...byFile.get(m.file), is_new: m.is_new } : { ...m, installed: false, active: false }));
+    for (const m of installed) if (!merged.some((x) => x.file === m.file)) merged.push(m);
+    models = merged;
+  } catch (e) { renderProblems([String(e)]); }
+  renderModels();
+}
+
+$("checkModels").onclick = async () => {
+  const button = $("checkModels");
+  button.disabled = true;
+  button.textContent = "Checking…";
+  try {
+    models = await invoke("check_model_updates");
+    const fresh = models.filter((m) => m.is_new).length;
+    toast(fresh ? `${fresh} new model${fresh === 1 ? "" : "s"} available` : "You have the latest models");
+  } catch (e) {
+    toast("Couldn't reach the model host — are you online?", "bad");
+  }
+  button.disabled = false;
+  button.textContent = "Check for new models";
+  renderModels();
+};
+
+listen("model-progress", ({ payload }) => {
+  const dl = downloads[payload.file];
+  if (!dl) return;
+  dl.done = payload.done;
+  dl.total = payload.total || dl.total;
+  const fill = document.querySelector(`.progress > i[data-file="${CSS.escape(payload.file)}"]`);
+  if (fill) fill.style.width = `${Math.min(100, (dl.done / dl.total) * 100)}%`;
+});
+listen("model-downloaded", ({ payload: file }) => {
+  delete downloads[file];
+  toast("Download complete — press Use to switch to it");
+  refreshModels();
+});
+listen("model-download-failed", ({ payload: [file, cancelled, message] }) => {
+  delete downloads[file];
+  toast(cancelled ? "Download cancelled" : `Download failed: ${message}`, cancelled ? "ok" : "bad");
+  renderModels();
+});
+listen("model-ready", ({ payload: ok }) => {
+  toast(ok ? "Speech model ready" : "Couldn't load that model; the previous one is still in use", ok ? "ok" : "bad");
+  refreshModels();
+});
+invoke("list_models").then((m) => { models = m; renderModels(); }).catch(() => {});
 
 // Launch at sign-in: the OS is the source of truth, so ask it rather than remembering locally.
 invoke("get_autostart").then((on) => ($("autostart").checked = on)).catch(() => ($("autostart").disabled = true));

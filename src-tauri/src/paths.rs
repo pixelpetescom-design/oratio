@@ -10,6 +10,12 @@ fn candidates(app: &AppHandle) -> Vec<PathBuf> {
     if let Ok(p) = std::env::var("ORATIO_MODEL") {
         v.push(PathBuf::from(p));
     }
+    // The model the user chose in Settings (downloaded or bundled), then the one this build ships with.
+    if let Some(chosen) = crate::model_files::active(app) {
+        if let Some(path) = crate::model_files::path_of(app, &chosen) {
+            v.push(path);
+        }
+    }
     if let Ok(d) = app.path().app_data_dir() {
         v.push(d.join("models").join(MODEL_FILE));
     }

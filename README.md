@@ -9,6 +9,8 @@ is on your clipboard and typed into whatever app you're in (toggle in the window
 * **Snippets**: say “my address” and Oratio types your saved text instead.
 * **Voice search**: hold Shift (or Alt) with Ctrl + Win to search Google, Bing, DuckDuckGo, YouTube, Maps, Wikipedia or a custom address by voice. Start with an engine name (“YouTube cute cats”) to pick one by voice.
 * **Per-app behaviour**: e.g. never type into a game, or press Enter after typing into Discord.
+* **Speech models**: Settings → Speech model lists what's installed; press *Check for new models* to see (and download) newer ones from the public whisper.cpp repository, then switch without restarting. That button is the only time Oratio goes online.
+* **Movable wave**: choose one of eight spots, or drag it anywhere.
 * **Microphone picker** and Australian English spelling.
 * Every transcription is saved locally (SQLite) so you can copy it later, even after a crash.
 * Closing the window keeps Oratio in the tray.

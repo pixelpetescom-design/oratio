@@ -8,4 +8,6 @@ pub enum CoreError {
     Audio(String),
     #[error("keyboard: {0}")]
     Input(String),
+    #[error("network: {0}")]
+    Network(String),
 }

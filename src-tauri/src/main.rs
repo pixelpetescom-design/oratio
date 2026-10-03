@@ -3,6 +3,7 @@
 mod commands;
 mod config;
 mod controller;
+mod model_files;
 mod overlay_window;
 mod paths;
 
@@ -37,6 +38,12 @@ fn main() {
             commands::set_glass,
             commands::set_search,
             commands::set_behaviour,
+            commands::list_models,
+            commands::check_model_updates,
+            commands::download_model,
+            commands::cancel_model_download,
+            commands::use_model,
+            commands::delete_model,
             commands::set_overlay_position,
             commands::preview_overlay,
             commands::begin_move_overlay,

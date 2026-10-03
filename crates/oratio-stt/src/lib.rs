@@ -19,12 +19,22 @@ pub struct WhisperTranscriber {
     prompt: String,
 }
 
-/// Whisper's encoder always processes a fixed 30 s window unless told otherwise, so a 3 s
-/// phrase costs as much as a 30 s one. 50 encoder frames = 1 s; give the clip its length plus
-/// a 1 s margin, rounded up to a multiple of 64, never below ~10 s of context or above the 30 s maximum.
+/// Whisper's encoder always processes a fixed 30 s window unless told otherwise, so a 3 s phrase costs
+/// as much as a 30 s one. On the CPU build we shorten it to the clip plus a 1 s margin (50 frames = 1 s),
+/// rounded up to 64 and never below ~15 s, which keeps the speed-up without making the model unstable.
+/// With a GPU the full window is cheap, so the model is used exactly as it was trained.
 fn audio_ctx_for(samples: usize) -> i32 {
+    if cfg!(feature = "vulkan") {
+        return 1500;
+    }
     let frames = (samples as f32 / 16_000.0 + 1.0) * 50.0;
-    (((frames / 64.0).ceil() as i32) * 64).clamp(512, 1500)
+    (((frames / 64.0).ceil() as i32) * 64).clamp(768, 1500)
+}
+
+/// The model sometimes answers with its own hint text when there is nothing to hear.
+fn looks_like_prompt_echo(text: &str) -> bool {
+    let t = text.to_lowercase();
+    t.contains("well-punctuated sentence") || t.contains("proper capitalisation") || t.trim_start().starts_with("vocabulary:")
 }
 
 /// A generous ceiling on output length: speech is at most ~10 tokens a second, so a longer answer
@@ -64,9 +74,8 @@ impl Transcriber for WhisperTranscriber {
         p.set_translate(false);
         p.set_n_threads(self.threads);
         p.set_no_context(true);
-        // Speed: skip timestamp decoding, treat each utterance as one segment, never re-decode
-        // at higher temperatures, and only encode as much audio as there is.
-        p.set_no_timestamps(true);
+        // Treat each utterance as one segment; the CPU build also encodes only as much audio as there is.
+        p.set_no_timestamps(false);
         p.set_single_segment(true);
         // Keep Whisper's own recovery: if a pass looks like a loop or gibberish it retries at a higher
         // temperature. (Switching this off for speed let it repeat one phrase indefinitely.)
@@ -95,7 +104,8 @@ impl Transcriber for WhisperTranscriber {
                 text.push_str(seg);
             }
         }
-        Ok(text)
+        // A reply that is just the hint text means there was nothing to hear.
+        Ok(if looks_like_prompt_echo(&text) { String::new() } else { text })
     }
 }
 
@@ -112,15 +122,25 @@ mod tests {
 
     #[test]
     fn audio_context_scales_with_clip_length_and_stays_in_bounds() {
-        assert_eq!(audio_ctx_for(16_000 * 3), 512); // short clips get the floor
-        assert_eq!(audio_ctx_for(16_000 * 10), 576);
+        if cfg!(feature = "vulkan") {
+            assert_eq!(audio_ctx_for(16_000 * 3), 1500, "the GPU build never shortens the window");
+            return;
+        }
+        assert_eq!(audio_ctx_for(16_000 * 3), 768); // short clips get the floor
+        assert_eq!(audio_ctx_for(16_000 * 10), 768);
         assert_eq!(audio_ctx_for(16_000 * 25), 1344);
         assert_eq!(audio_ctx_for(16_000 * 40), 1500); // never beyond the model's window
-        assert!(audio_ctx_for(0) >= 512);
         // The context must always cover the audio, or the end of the clip would be ignored.
         for secs in 1..=29 {
             assert!(audio_ctx_for(16_000 * secs) >= secs as i32 * 50, "{secs}s");
         }
+    }
+
+    #[test]
+    fn the_models_own_hint_text_is_recognised_as_an_echo() {
+        assert!(looks_like_prompt_echo("Hello. This is a clear, well-punctuated sentence in Australian English"));
+        assert!(looks_like_prompt_echo("Vocabulary: Postiz, Tauri."));
+        assert!(!looks_like_prompt_echo("Please send the colour samples."));
     }
 
     /// Needs a real model: `ORATIO_MODEL=models/ggml-base.en-q5_1.bin cargo test -p oratio-stt -- --ignored`

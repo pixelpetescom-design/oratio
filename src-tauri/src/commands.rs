@@ -7,6 +7,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::window::{Color, Effect, EffectsBuilder};
 use tauri::{AppHandle, Emitter, Manager, State};
+use oratio_core::models::{describe, offered, RemoteFile};
 use oratio_core::overlay::{Position, Preset};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -288,4 +289,150 @@ pub fn end_move_overlay(app: AppHandle, ctl: State<'_, Handle>) -> Result<(i32, 
     let _ = window.hide();
     let _ = app.emit("overlay-move", false);
     Ok((at.x, at.y))
+}
+
+// ---- speech models ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+pub struct ModelView {
+    file: String,
+    name: String,
+    quant: String,
+    english_only: bool,
+    size_mb: u64,
+    installed: bool,
+    active: bool,
+    bundled: bool,
+    /// Published since the last time the user checked.
+    is_new: bool,
+    /// What this build of Oratio is designed around.
+    recommended: bool,
+}
+
+fn view(file: &str, size: u64, installed: bool, bundled: bool, active: &str, is_new: bool) -> ModelView {
+    let info = describe(&RemoteFile { path: file.to_string(), size, sha256: None });
+    ModelView {
+        file: file.to_string(),
+        name: info.as_ref().map_or_else(|| file.trim_end_matches(".bin").to_string(), |i| i.name.clone()),
+        quant: info.as_ref().map_or_else(String::new, |i| i.quant.clone()),
+        english_only: info.as_ref().is_some_and(|i| i.english_only),
+        size_mb: size / 1_000_000,
+        installed,
+        active: file == active,
+        bundled,
+        is_new,
+        recommended: file == crate::config::MODEL_FILE,
+    }
+}
+
+fn active_file(app: &AppHandle) -> String {
+    crate::model_files::active(app).unwrap_or_else(|| crate::config::MODEL_FILE.to_string())
+}
+
+/// Models on this computer. Works offline.
+#[tauri::command]
+pub fn list_models(app: AppHandle) -> Vec<ModelView> {
+    let active = active_file(&app);
+    crate::model_files::installed(&app).into_iter().map(|m| view(&m.file, m.size, true, m.bundled, &active, false)).collect()
+}
+
+/// Asks the public model host what is available. This is the only time Oratio goes online, and only
+/// because the user pressed the button; nothing about them is sent.
+#[tauri::command]
+pub async fn check_model_updates(app: AppHandle, ctl: State<'_, Handle>) -> Result<Vec<ModelView>, String> {
+    let files = tauri::async_runtime::spawn_blocking(|| oratio_models::list(&oratio_models::Hub::huggingface()))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let offered_models = offered(&files);
+    let installed = crate::model_files::installed(&app);
+    let active = active_file(&app);
+    // The first check sets the baseline; afterwards anything not seen before is flagged as new.
+    let previously_seen = crate::model_files::seen(&app);
+    let names: Vec<String> = offered_models.iter().map(|m| m.file.clone()).collect();
+    let views = offered_models
+        .iter()
+        .map(|m| {
+            let have = installed.iter().find(|i| i.file == m.file);
+            let is_new = previously_seen.as_ref().is_some_and(|seen| !seen.contains(&m.file));
+            view(&m.file, m.size, have.is_some(), have.is_some_and(|i| i.bundled), &active, is_new)
+        })
+        .collect();
+    crate::model_files::remember_seen(&app, &names);
+    if let Ok(mut r) = ctl.shared.remote_models.lock() {
+        *r = files;
+    }
+    Ok(views)
+}
+
+#[derive(Serialize, Clone)]
+struct Progress {
+    file: String,
+    done: u64,
+    total: u64,
+}
+
+/// Starts downloading a model in the background; progress arrives as "model-progress" events and the
+/// result as "model-downloaded" / "problem".
+#[tauri::command]
+pub fn download_model(app: AppHandle, ctl: State<'_, Handle>, file: String) -> Result<(), String> {
+    let remote = ctl
+        .shared
+        .remote_models
+        .lock()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .find(|f| f.path == file)
+        .cloned()
+        .ok_or("check for new models first")?;
+    let dir = crate::model_files::models_dir(&app).ok_or("no data folder")?;
+    if ctl.shared.model_busy.swap(true, Ordering::Relaxed) {
+        return Err("a download is already running".into());
+    }
+    ctl.shared.model_cancel.store(false, Ordering::Relaxed);
+    let shared = ctl.shared.clone();
+    std::thread::spawn(move || {
+        let name = remote.path.clone();
+        let result = oratio_models::download(&oratio_models::Hub::huggingface(), &remote, &dir, &shared.model_cancel, |done, total| {
+            let _ = app.emit("model-progress", Progress { file: name.clone(), done, total });
+        });
+        shared.model_busy.store(false, Ordering::Relaxed);
+        match result {
+            Ok(_) => {
+                let _ = app.emit("model-downloaded", name);
+            }
+            Err(e) => {
+                let cancelled = e.to_string().contains("cancelled");
+                let _ = app.emit("model-download-failed", (name, cancelled, e.to_string()));
+            }
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cancel_model_download(ctl: State<'_, Handle>) {
+    ctl.shared.model_cancel.store(true, Ordering::Relaxed);
+}
+
+/// Switches to an installed model (loaded in the background) and remembers the choice.
+#[tauri::command]
+pub fn use_model(app: AppHandle, ctl: State<'_, Handle>, file: String) -> Result<(), String> {
+    let path = crate::model_files::path_of(&app, &file).ok_or("that model isn't installed")?;
+    crate::model_files::set_active(&app, &file).map_err(|e| e.to_string())?;
+    ctl.use_model(path);
+    Ok(())
+}
+
+/// Deletes a downloaded model (not the one that came with the installer, and not the one in use).
+#[tauri::command]
+pub fn delete_model(app: AppHandle, file: String) -> Result<(), String> {
+    if file == active_file(&app) {
+        return Err("that model is in use; switch to another one first".into());
+    }
+    let model = crate::model_files::installed(&app).into_iter().find(|m| m.file == file).ok_or("not found")?;
+    if model.bundled {
+        return Err("that model came with the installer".into());
+    }
+    std::fs::remove_file(model.path).map_err(|e| e.to_string())
 }

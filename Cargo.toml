@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/oratio-core", "crates/oratio-audio", "crates/oratio-stt", "crates/oratio-store", "crates/oratio-paste", "crates/oratio-keys", "crates/oratio-window", "src-tauri"]
+members = ["crates/oratio-core", "crates/oratio-audio", "crates/oratio-stt", "crates/oratio-store", "crates/oratio-paste", "crates/oratio-keys", "crates/oratio-window", "crates/oratio-models", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

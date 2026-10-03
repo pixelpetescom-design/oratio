@@ -43,4 +43,5 @@ fn adapters_depend_only_on_core_and_their_integration() {
     assert_exactly("oratio-paste", &["oratio-core", "enigo"]);
     assert_exactly("oratio-keys", &["oratio-core", "device_query", "enigo"]);
     assert_exactly("oratio-window", &["oratio-core", "active-win-pos-rs"]);
+    assert_exactly("oratio-models", &["oratio-core", "ureq", "sha2", "serde_json"]);
 }

@@ -8,7 +8,7 @@ Nothing leaves the machine (the webview CSP allows no network origins and no ada
 ```
             src-tauri  (shell: wiring, hotkeys, clipboard, tray, windows)
            /    |     \        \       \
-    oratio-audio oratio-stt oratio-store oratio-paste oratio-keys oratio-window   adapters: one third-party integration each
+    oratio-audio oratio-stt oratio-store oratio-paste oratio-keys oratio-window oratio-models   adapters: one third-party integration each
            \    |     /
             oratio-core                  pure: domain, state machine, ports, engine
 ```
@@ -98,6 +98,9 @@ user's own vocabulary is exempt, and learned corrections run last so they always
 | Hold-to-talk | `ChordDetector` reports press **and** release with the hold time; a hold ≥ 450 ms ends the dictation on release, a tap still toggles |
 | Voice search (Shift/Alt + Ctrl+Win) | `search`: engines, spoken routing ("YouTube cute cats"), https-only custom address, percent-encoding |
 | Per-app rules (copy only / press Enter after) | `apps::action_for` over the `AppRules` port; focus lookup in `oratio-window` |
+| Wave overlay position (8 presets or dragged) | `overlay::resolve` pure geometry; a remembered spot on an unplugged monitor falls back to top-centre |
+| Speech-model updates | `models::describe/offered` parse the public repo's file names; `oratio-models` is the **only** code that touches the network, runs only when the user presses "Check for new models", and verifies SHA-256 + refuses unsafe file names; `Command::SwapModel` hot-swaps the recogniser (a bad file leaves the old model running) |
+| Loop protection | Whisper's temperature fallback stays on, output length is capped per clip, `polish::collapse_repeats` cuts runs of a repeated phrase (a long loop is removed, real words around it kept) and the model's own hint text is never typed |
 | Microphone picker | `oratio-audio::input_devices` + `Capture::start(device, …)`; falls back to the default device |
 
 Pipeline order matters: recogniser → polish → Australian spelling → learned corrections → spoken commands → snippets.

@@ -113,6 +113,13 @@
       </div>
 
       <div class="card options">
+        <h2>Speech model</h2>
+        <p class="hint">The voice model does the listening. Bigger models are more accurate but slower. This is the only place Oratio goes online: it contacts the public model host when you press the button below, and never sends anything you say or type. Downloads are checked against the host’s published checksum.</p>
+        <div id="models" class="models"></div>
+        <div><button id="checkModels" class="btn outline small">Check for new models</button></div>
+      </div>
+
+      <div class="card options">
         <h2>Microphone</h2>
         <select id="mic" aria-label="Microphone"></select>
       </div>

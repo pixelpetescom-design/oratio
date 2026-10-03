@@ -23,6 +23,8 @@ use oratio_core::session::{step, Effect, Input, State};
 pub enum Msg {
     Input(Input),
     Engine(Event),
+    /// Switch to the speech model in this file.
+    UseModel(std::path::PathBuf),
 }
 
 /// State readable from any thread (UI commands); written only by the controller thread.
@@ -51,6 +53,11 @@ pub struct Shared {
     pub overlay_pos: Mutex<oratio_core::overlay::Position>,
     /// True while the user is dragging the overlay to a new spot (it stays visible and clickable).
     pub overlay_moving: AtomicBool,
+    /// The last listing fetched from the model host (so a download can use its size and checksum).
+    pub remote_models: Mutex<Vec<oratio_core::models::RemoteFile>>,
+    /// A model download is running / has been asked to stop.
+    pub model_busy: AtomicBool,
+    pub model_cancel: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -62,6 +69,10 @@ pub struct Handle {
 impl Handle {
     pub fn send(&self, input: Input) {
         let _ = self.tx.send(Msg::Input(input));
+    }
+
+    pub fn use_model(&self, path: std::path::PathBuf) {
+        let _ = self.tx.send(Msg::UseModel(path));
     }
 }
 
@@ -117,6 +128,9 @@ pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, engin
         mic: Mutex::new(None),
         overlay_pos: Mutex::new(oratio_core::overlay::Position::default()),
         overlay_moving: AtomicBool::new(false),
+        remote_models: Mutex::new(Vec::new()),
+        model_busy: AtomicBool::new(false),
+        model_cancel: AtomicBool::new(false),
     });
 
     let forward = tx.clone();
@@ -147,6 +161,7 @@ pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, engin
             match msg {
                 Msg::Input(i) => ctl.apply(i),
                 Msg::Engine(e) => ctl.on_engine(e),
+                Msg::UseModel(path) => ctl.use_model(path),
             }
         }
     });
@@ -246,6 +261,18 @@ impl Controller {
         }
     }
 
+    /// Loads another speech model in the background. Only allowed when nothing is being dictated.
+    fn use_model(&mut self, path: std::path::PathBuf) {
+        if !matches!(self.state, State::Idle | State::Off) {
+            self.problem("Finish dictating before switching the speech model.".into());
+            return;
+        }
+        self.apply(Input::EngineLoading);
+        self.engine.send(Command::SwapModel(Box::new(move || {
+            Ok(Box::new(oratio_stt::WhisperTranscriber::load(&path)?) as Box<dyn oratio_core::stt::Transcriber>)
+        })));
+    }
+
     fn arm_timer(&self, deadline: u64) {
         let wait = deadline.saturating_sub(self.now());
         let tx = self.tx.clone();
@@ -272,7 +299,16 @@ impl Controller {
 
     fn on_engine(&mut self, ev: Event) {
         match ev {
-            Event::Ready => self.apply(Input::EngineReady),
+            Event::Ready => {
+                self.apply(Input::EngineReady);
+                let _ = self.app.emit("model-ready", true);
+            }
+            Event::ModelSwapFailed(m) => {
+                // The previous model is still loaded, so we are ready to dictate again.
+                self.problem(format!("Could not load that speech model: {m}"));
+                self.apply(Input::EngineReady);
+                let _ = self.app.emit("model-ready", false);
+            }
             Event::LoadFailed(m) => {
                 self.problem(m);
                 self.apply(Input::EngineFailed);
