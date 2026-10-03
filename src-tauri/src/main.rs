@@ -26,6 +26,8 @@ use oratio_stt::WhisperTranscriber;
 
 fn main() {
     let result = tauri::Builder::default()
+        // A second copy would fight the first over Escape and the microphone, so it just wakes the running one.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         // Launched at sign-in with --hidden, Oratio starts quietly in the tray.
