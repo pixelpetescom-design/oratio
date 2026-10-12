@@ -9,6 +9,7 @@
 use crate::history::{History, RecordingId};
 use crate::lexicon::{Fix, Lexicon};
 use crate::commands;
+use crate::numbers;
 use crate::polish::{collapse_repeats, polish, LOOP_RUN};
 use crate::vocab::apply_fixes;
 use crate::spelling::to_australian;
@@ -211,7 +212,7 @@ fn run(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, rx: R
                 }
                 // Spelling first, so the user's own corrections always have the final word; spoken commands
                 // and snippets come last so nothing earlier can disturb the line breaks they create.
-                let text = apply_fixes(&to_australian(&polish(&t.texts), &t.words), &t.fixes);
+                let text = numbers::format(&apply_fixes(&to_australian(&polish(&t.texts), &t.words), &t.fixes));
                 let parsed = if t.spoken_commands { commands::apply(&text) } else { commands::Parsed { text, ..Default::default() } };
                 if parsed.scratch {
                     let _ = history.delete(t.id);
@@ -417,6 +418,12 @@ mod tests {
     fn spoken_commands_shape_the_text() {
         let e = dictate(vec![Ok("dear John comma new line thanks for the colour")], Arc::new(MemLexicon::default()), true);
         assert_eq!(e, Event::Finished { id: Some(1), text: "Dear John,\nThanks for the colour.".into(), enter: false });
+    }
+
+    #[test]
+    fn spoken_numbers_are_written_as_numbers() {
+        let e = dictate(vec![Ok("it costs twenty five dollars um I I think")], Arc::new(MemLexicon::default()), true);
+        assert_eq!(e, Event::Finished { id: Some(1), text: "It costs $25 I think.".into(), enter: false });
     }
 
     #[test]

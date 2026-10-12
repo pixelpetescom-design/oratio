@@ -7,7 +7,7 @@ fn is_filler(word: &str) -> bool {
     let squeezed: String = {
         let mut out = String::new();
         for c in word.chars() {
-            if out.chars().last() != Some(c) {
+            if !out.ends_with(c) {
                 out.push(c);
             }
         }
@@ -19,6 +19,10 @@ fn is_filler(word: &str) -> bool {
     let is_mm = word.len() >= 2 && word.chars().all(|c| c == 'm');
     is_mm || matches!(squeezed.as_str(), "um" | "uh" | "uhm" | "er" | "erm" | "hm" | "hmm" | "ehm")
 }
+
+/// Small words people stumble on ("I, I, I think"). Words that are legitimately doubled ("that that",
+/// "had had") are deliberately not here.
+const STUTTERS: &[&str] = &["i", "the", "a", "an", "and", "to", "we", "you", "it", "is", "in", "of", "so", "but", "my", "he", "she", "they", "if", "or", "for", "on", "at", "with", "as", "this", "there"];
 
 fn core(token: &str) -> String {
     token.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase()
@@ -42,6 +46,10 @@ pub fn polish<S: AsRef<str>>(segments: &[S]) -> String {
                 }
             }
             continue;
+        }
+        // A stumble ("I, I, I think"): keep only the last of the repeats, which carries the real punctuation.
+        if STUTTERS.contains(&c.as_str()) && tokens.last().is_some_and(|prev| core(prev) == c) {
+            tokens.pop();
         }
         let fixed = if c == "i" || c.starts_with("i'") {
             let mut s = raw.to_string();
@@ -172,6 +180,13 @@ mod tests {
         assert_eq!(polish(&["Ummm, so errr, I think mmm hmm we should go"]), "So I think we should go.");
         assert_eq!(polish(&["We should err on the side of caution"]), "We should err on the side of caution.");
         assert_eq!(polish(&["Um, hello there"]), "Hello there.");
+    }
+
+    #[test]
+    fn collapses_stutters_but_keeps_real_doubles() {
+        assert_eq!(polish(&["I, I, I think we should, we should go"]), "I think we should, we should go.");
+        assert_eq!(polish(&["So the the plan is to to wait"]), "So the plan is to wait.");
+        assert_eq!(polish(&["I said that that was fine and he had had enough"]), "I said that that was fine and he had had enough.");
     }
 
     #[test]

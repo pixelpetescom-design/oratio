@@ -10,6 +10,7 @@ pub mod history;
 pub mod hotkey;
 pub mod lexicon;
 pub mod models;
+pub mod numbers;
 pub mod overlay;
 pub mod polish;
 pub mod resample;
