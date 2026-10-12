@@ -1,7 +1,7 @@
 main { flex: 1; min-width: 0; height: 100vh; overflow-y: auto; padding: 10px 12px 52px; display: flex; flex-direction: column; gap: 8px; }
 .top { display: flex; align-items: center; justify-content: space-between; }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; letter-spacing: 0.04em; }
-.logo { width: 22px; height: 22px; filter: drop-shadow(0 0 7px rgba(40, 180, 255, 0.7)); }
+.logo { width: 22px; height: 22px; }
 .status { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 
 /* Hero: orb with a level ring, the wave, and the live text */
