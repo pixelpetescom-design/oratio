@@ -2,7 +2,23 @@
 //! fillers removed, "i" fixed, sentences capitalised, spacing and terminal
 //! punctuation normalised. The recogniser already supplies most punctuation.
 
-const FILLERS: &[&str] = &["um", "umm", "uh", "uhh", "uhm", "erm", "er", "hmm", "mm"];
+/// "um", "uh", "er", "erm", "hmm", "mm" however many letters the recogniser stretches them to ("ummm", "errr").
+fn is_filler(word: &str) -> bool {
+    let squeezed: String = {
+        let mut out = String::new();
+        for c in word.chars() {
+            if out.chars().last() != Some(c) {
+                out.push(c);
+            }
+        }
+        out
+    };
+    if word == "err" {
+        return false; // a real word: "err on the side of caution"
+    }
+    let is_mm = word.len() >= 2 && word.chars().all(|c| c == 'm');
+    is_mm || matches!(squeezed.as_str(), "um" | "uh" | "uhm" | "er" | "erm" | "hm" | "hmm" | "ehm")
+}
 
 fn core(token: &str) -> String {
     token.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase()
@@ -19,7 +35,7 @@ pub fn polish<S: AsRef<str>>(segments: &[S]) -> String {
     let mut tokens: Vec<String> = Vec::new();
     for raw in joined.split_whitespace() {
         let c = core(raw);
-        if FILLERS.contains(&c.as_str()) {
+        if is_filler(&c) {
             if let (Some(end), Some(prev)) = (raw.chars().last().filter(|c| is_terminal(*c)), tokens.last_mut()) {
                 if !prev.ends_with(is_terminal) {
                     prev.push(end);
@@ -149,6 +165,13 @@ mod tests {
     fn fixes_the_pronoun_i() {
         assert_eq!(polish(&["yes i think i'm ready and i'll go"]), "Yes I think I'm ready and I'll go.");
         assert_eq!(polish(&["it is in India"]), "It is in India.");
+    }
+
+    #[test]
+    fn removes_stretched_fillers_but_not_real_words() {
+        assert_eq!(polish(&["Ummm, so errr, I think mmm hmm we should go"]), "So I think we should go.");
+        assert_eq!(polish(&["We should err on the side of caution"]), "We should err on the side of caution.");
+        assert_eq!(polish(&["Um, hello there"]), "Hello there.");
     }
 
     #[test]
