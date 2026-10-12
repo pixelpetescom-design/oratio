@@ -6,7 +6,7 @@
 use crate::config::{escape_shortcut, CANCEL_GRACE_MS, CONTINUATION_WINDOW_MS, OVERLAY_LINGER_MS, PASTE_DELAY_MS, TAIL_GRACE_MS};
 use serde::Serialize;
 use std::sync::mpsc::{channel, Sender};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
@@ -17,6 +17,7 @@ use oratio_audio::Capture;
 use oratio_core::engine::{Command, Engine, Event};
 use oratio_core::polish::continuation;
 use oratio_core::apps::{action_for, AppAction, AppRules};
+use oratio_core::meeting::{Line, MeetingId, Meetings, Source};
 use oratio_core::search::{custom_url, query, route, url, Engine as SearchEngine};
 use oratio_core::session::{step, Effect, Input, State};
 
@@ -25,6 +26,8 @@ pub enum Msg {
     Engine(Event),
     /// Switch to the speech model in this file.
     UseModel(std::path::PathBuf),
+    MeetingStart,
+    MeetingStop,
 }
 
 /// State readable from any thread (UI commands); written only by the controller thread.
@@ -58,6 +61,8 @@ pub struct Shared {
     /// A model download is running / has been asked to stop.
     pub model_busy: AtomicBool,
     pub model_cancel: AtomicBool,
+    /// The meeting being recorded (or still being written up), or 0 when there is none.
+    pub meeting_id: AtomicI64,
 }
 
 #[derive(Clone)]
@@ -73,6 +78,14 @@ impl Handle {
 
     pub fn use_model(&self, path: std::path::PathBuf) {
         let _ = self.tx.send(Msg::UseModel(path));
+    }
+
+    pub fn start_meeting(&self) {
+        let _ = self.tx.send(Msg::MeetingStart);
+    }
+
+    pub fn stop_meeting(&self) {
+        let _ = self.tx.send(Msg::MeetingStop);
     }
 }
 
@@ -96,8 +109,17 @@ struct Finished {
     elapsed_ms: Option<u64>,
 }
 
+/// A meeting being recorded: both sides of the call, until Stop drops the captures.
+struct ActiveMeeting {
+    id: MeetingId,
+    /// Microphone and computer audio. None once Stop has been pressed and the rest is being written up.
+    captures: Option<(Capture, Capture)>,
+}
+
 struct Controller {
     app: AppHandle,
+    meetings: Arc<dyn Meetings>,
+    meeting: Option<ActiveMeeting>,
     engine: Engine,
     app_rules: Arc<dyn AppRules>,
     shared: Arc<Shared>,
@@ -115,7 +137,7 @@ struct Controller {
 
 /// Starts the controller thread. `engine_events` is the receiving end of the
 /// channel the engine was spawned with.
-pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, engine_events: std::sync::mpsc::Receiver<Event>) -> Handle {
+pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, meetings: Arc<dyn Meetings>, engine_events: std::sync::mpsc::Receiver<Event>) -> Handle {
     let (tx, rx) = channel::<Msg>();
     let shared = Arc::new(Shared { state: Mutex::new(State::Loading), problems: Mutex::new(vec![]), auto_paste: AtomicBool::new(true),
         search_enabled: AtomicBool::new(false),
@@ -131,6 +153,7 @@ pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, engin
         remote_models: Mutex::new(Vec::new()),
         model_busy: AtomicBool::new(false),
         model_cancel: AtomicBool::new(false),
+        meeting_id: AtomicI64::new(0),
     });
 
     let forward = tx.clone();
@@ -144,6 +167,8 @@ pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, engin
 
     let mut ctl = Controller {
         app,
+        meetings,
+        meeting: None,
         engine,
         app_rules,
         shared: shared.clone(),
@@ -162,6 +187,8 @@ pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, engin
                 Msg::Input(i) => ctl.apply(i),
                 Msg::Engine(e) => ctl.on_engine(e),
                 Msg::UseModel(path) => ctl.use_model(path),
+                Msg::MeetingStart => ctl.start_meeting(),
+                Msg::MeetingStop => ctl.stop_meeting(),
             }
         }
     });
@@ -174,6 +201,10 @@ impl Controller {
     }
 
     fn apply(&mut self, input: Input) {
+        if self.meeting.is_some() && matches!(input, Input::Toggle) {
+            self.problem("A meeting is being recorded. Stop it before dictating.".into());
+            return;
+        }
         let prev = self.state;
         let (next, effect) = step(prev, input, self.now(), CANCEL_GRACE_MS);
         self.state = next;
@@ -254,6 +285,53 @@ impl Controller {
                 crate::overlay_window::position(&self.app, &self.shared);
                 let _ = w.show();
             }
+        }
+    }
+
+    /// Starts recording a meeting: your microphone and whatever the computer is playing, kept apart.
+    fn start_meeting(&mut self) {
+        if self.meeting.is_some() {
+            return;
+        }
+        if !matches!(self.state, State::Idle) {
+            self.problem("Wait until Oratio is ready and not dictating, then start the meeting.".into());
+            return;
+        }
+        let started_at_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+        let id = match self.meetings.begin_meeting(started_at_ms) {
+            Ok(id) => id,
+            Err(e) => return self.problem(format!("Could not start a meeting: {e}")),
+        };
+        self.engine.send(Command::MeetingBegin);
+        let started = Instant::now();
+        let sink = |source: Source| {
+            let audio = self.engine.sender();
+            move |samples: Vec<f32>| {
+                let _ = audio.send(Command::MeetingAudio { source, at_ms: started.elapsed().as_millis() as u64, samples });
+            }
+        };
+        let mic = self.shared.mic.lock().ok().and_then(|m| m.clone());
+        let captures = Capture::start(mic, sink(Source::You)).and_then(|you| Capture::start_system(sink(Source::Others)).map(|others| (you, others)));
+        match captures {
+            Ok(c) => {
+                self.meeting = Some(ActiveMeeting { id, captures: Some(c) });
+                self.shared.meeting_id.store(id, Ordering::Relaxed);
+                let _ = self.app.emit("meeting-state", Some(id));
+            }
+            Err(e) => {
+                let _ = self.meetings.delete_meeting(id);
+                self.engine.send(Command::MeetingEnd);
+                self.problem(format!("Could not record the meeting: {e}"));
+            }
+        }
+    }
+
+    /// Stops listening. The sentences still being recognised are written up before the meeting is closed.
+    fn stop_meeting(&mut self) {
+        let Some(m) = self.meeting.as_mut() else { return };
+        // Dropping the captures stops both streams and joins their threads, so all audio is queued before the end marker.
+        if m.captures.take().is_some() {
+            self.engine.send(Command::MeetingEnd);
         }
     }
 
@@ -408,6 +486,25 @@ impl Controller {
                 self.hide_overlay_later();
             }
             Event::Warning(m) => self.problem(m),
+            Event::MeetingLine { source, start_ms, text } => {
+                if let Some(m) = &self.meeting {
+                    let line = Line { source, start_ms, text };
+                    if let Err(e) = self.meetings.append_line(m.id, &line) {
+                        self.problem(format!("A line of the meeting could not be saved: {e}"));
+                    }
+                    let _ = self.app.emit("meeting-line", line);
+                }
+            }
+            Event::MeetingEnded => {
+                if let Some(m) = self.meeting.take() {
+                    let ended = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+                    if let Err(e) = self.meetings.finish_meeting(m.id, ended) {
+                        self.problem(format!("The meeting could not be closed: {e}"));
+                    }
+                }
+                self.shared.meeting_id.store(0, Ordering::Relaxed);
+                let _ = self.app.emit("meeting-state", None::<MeetingId>);
+            }
         }
     }
 

@@ -22,16 +22,34 @@ pub fn input_devices() -> Vec<String> {
     cpal::default_host().input_devices().map(|devices| devices.filter_map(|d| d.name().ok()).collect()).unwrap_or_default()
 }
 
+/// Where to listen.
+enum Input {
+    /// A microphone by name, or the system default.
+    Mic(Option<String>),
+    /// Whatever the computer is playing (the other people on a call).
+    System,
+}
+
 impl Capture {
+    /// Records what the computer is playing through its speakers or headphones (Windows "loopback"),
+    /// as 16 kHz mono. Nothing from the microphone is included.
+    pub fn start_system(sink: impl FnMut(Vec<f32>) + Send + 'static) -> Result<Capture, CoreError> {
+        Capture::start_input(Input::System, sink)
+    }
+
     /// Opens the microphone called `device` (or the system default when `None`, or when that one
     /// is no longer plugged in). `sink` is called on the audio thread, so it must not block.
     pub fn start(device: Option<String>, sink: impl FnMut(Vec<f32>) + Send + 'static) -> Result<Capture, CoreError> {
+        Capture::start_input(Input::Mic(device), sink)
+    }
+
+    fn start_input(input: Input, sink: impl FnMut(Vec<f32>) + Send + 'static) -> Result<Capture, CoreError> {
         let (stop_tx, stop_rx) = channel::<()>();
         let (ready_tx, ready_rx) = channel::<Result<(), CoreError>>();
         // cpal streams are not `Send`, so the stream lives and dies on its own thread.
         let handle = std::thread::Builder::new()
             .name("oratio-capture".into())
-            .spawn(move || match open(device.as_deref(), sink) {
+            .spawn(move || match open(input, sink) {
                 Ok(stream) => {
                     let _ = ready_tx.send(Ok(()));
                     let _ = stop_rx.recv();
@@ -66,11 +84,22 @@ fn pick_device(wanted: Option<&str>) -> Option<cpal::Device> {
         .or_else(|| host.default_input_device())
 }
 
-fn open(wanted: Option<&str>, sink: impl FnMut(Vec<f32>) + Send + 'static) -> Result<cpal::Stream, CoreError> {
-    let device = pick_device(wanted).ok_or_else(|| CoreError::Audio("no microphone found".into()))?;
-    let supported = device.default_input_config().map_err(audio_err)?;
+fn open(input: Input, sink: impl FnMut(Vec<f32>) + Send + 'static) -> Result<cpal::Stream, CoreError> {
+    // Listening to an output device is how WASAPI records what is being played ("loopback").
+    let (device, supported, what) = match input {
+        Input::Mic(wanted) => {
+            let device = pick_device(wanted.as_deref()).ok_or_else(|| CoreError::Audio("no microphone found".into()))?;
+            let supported = device.default_input_config().map_err(audio_err)?;
+            (device, supported, "microphone")
+        }
+        Input::System => {
+            let device = cpal::default_host().default_output_device().ok_or_else(|| CoreError::Audio("no speakers or headphones found to listen to".into()))?;
+            let supported = device.default_output_config().map_err(audio_err)?;
+            (device, supported, "computer audio")
+        }
+    };
     eprintln!(
-        "[oratio] microphone: {} ({} Hz, {} ch, {:?})",
+        "[oratio] {what}: {} ({} Hz, {} ch, {:?})",
         device.name().unwrap_or_else(|_| "unknown".into()),
         supported.sample_rate().0,
         supported.channels(),

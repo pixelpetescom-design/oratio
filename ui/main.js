@@ -55,7 +55,7 @@ function showView(name) {
   window.dispatchEvent(new Event("resize")); // the wave canvas needs a re-measure once visible
 }
 document.querySelectorAll(".nav-btn").forEach((b) => (b.onclick = () => showView(b.dataset.view)));
-showView(["dictate", "history", "words", "settings"].includes(localStorage.getItem("view")) ? localStorage.getItem("view") : "dictate");
+showView(["dictate", "history", "meetings", "words", "settings"].includes(localStorage.getItem("view")) ? localStorage.getItem("view") : "dictate");
 
 // ---- small interaction helpers -------------------------------------------------------------
 
@@ -694,6 +694,111 @@ listen("scratched", ({ payload }) => {
 listen("problem", () => invoke("get_snapshot").then((s) => renderProblems(s.problems)));
 listen("history", renderHistory);
 
+// ---- meetings ------------------------------------------------------------------------------
+
+let meetingId = null;
+let meetingStopping = false;
+let meetingTimer = null;
+let meetingStartedAt = 0;
+
+function clockText(ms) {
+  const secs = Math.floor(ms / 1000);
+  const h = Math.floor(secs / 3600), m = Math.floor(secs / 60) % 60, s = secs % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function renderMeetingButton() {
+  const b = $("meetingToggle");
+  b.textContent = meetingStopping ? "Finishing…" : meetingId ? "Stop meeting" : "Start meeting";
+  b.disabled = meetingStopping;
+  b.classList.toggle("danger", !!meetingId && !meetingStopping);
+}
+
+function setMeeting(id) {
+  clearInterval(meetingTimer);
+  meetingId = id;
+  meetingStopping = false;
+  $("meetingClock").textContent = "";
+  if (id) {
+    meetingStartedAt = Date.now();
+    $("meetingLive").replaceChildren();
+    $("meetingLive").hidden = false;
+    meetingTimer = setInterval(() => { $("meetingClock").textContent = `Recording ${clockText(Date.now() - meetingStartedAt)}`; }, 500);
+  }
+  renderMeetingButton();
+  renderMeetings();
+}
+
+function lineElement(line) {
+  const el = document.createElement("div");
+  el.className = `tline ${line.source}`;
+  const who = document.createElement("b");
+  who.textContent = `${line.source === "you" ? "You" : "Others"} `;
+  const at = document.createElement("span");
+  at.className = "at";
+  at.textContent = `${clockText(line.start_ms)} `;
+  el.append(at, who, document.createTextNode(line.text));
+  return el;
+}
+
+$("meetingToggle").onclick = () => {
+  if (meetingId) {
+    meetingStopping = true;
+    renderMeetingButton();
+    invoke("stop_meeting");
+  } else {
+    invoke("start_meeting");
+  }
+};
+listen("meeting-state", ({ payload }) => setMeeting(payload));
+listen("meeting-line", ({ payload }) => {
+  const live = $("meetingLive");
+  const stuck = live.scrollTop + live.clientHeight >= live.scrollHeight - 24;
+  live.append(lineElement(payload));
+  if (stuck) live.scrollTop = live.scrollHeight;
+});
+
+async function renderMeetings() {
+  let meetings = [];
+  try { meetings = await invoke("list_meetings"); } catch (e) { renderProblems([String(e)]); return; }
+  const list = $("meetingList");
+  list.replaceChildren();
+  if (!meetings.length) {
+    const p = document.createElement("div");
+    p.className = "empty";
+    p.textContent = "Your meeting transcripts will appear here.";
+    list.append(p);
+    return;
+  }
+  meetings.forEach((m) => {
+    const card = document.createElement("div");
+    card.className = "card entry";
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const title = document.createElement("span");
+    title.className = "grow";
+    const length = m.ended_at_ms ? ` · ${clockText(m.ended_at_ms - m.started_at_ms)}` : m.id === meetingId ? " · recording" : " · interrupted";
+    title.textContent = `${m.title || fmtTime(m.started_at_ms)}${length} · ${m.lines} line${m.lines === 1 ? "" : "s"}`;
+    const body = document.createElement("div");
+    body.className = "transcript";
+    body.hidden = true;
+    const view = iconButton("edit", "Show transcript", async () => {
+      body.hidden = !body.hidden;
+      if (!body.hidden) body.textContent = await invoke("meeting_transcript", { id: m.id }) || "Nothing was said.";
+    });
+    const copy = iconButton("copy", "Copy transcript", async () => {
+      await invoke("copy_text", { text: await invoke("meeting_transcript", { id: m.id }) });
+      toast("Transcript copied");
+    });
+    const del = iconButton("trash", "Delete", async () => {
+      try { await invoke("delete_meeting", { id: m.id }); renderMeetings(); } catch (e) { toast(String(e), "bad"); }
+    }, "bad");
+    meta.append(title, view, copy, del);
+    card.append(meta, body);
+    list.append(card);
+  });
+}
+
 (async () => {
   const s = await invoke("get_snapshot");
   $("hotkey").textContent = s.hotkey;
@@ -702,4 +807,5 @@ listen("history", renderHistory);
   renderStats();
   renderHistory();
   renderLexicon();
+  setMeeting(s.meeting ?? null);
 })();

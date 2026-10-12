@@ -19,6 +19,7 @@ use oratio_core::apps::AppRules;
 use oratio_core::history::History;
 use oratio_core::lexicon::Lexicon;
 use oratio_core::search::SearchKey;
+use oratio_core::meeting::Meetings;
 use oratio_core::session::{Input, State};
 use oratio_core::stt::Transcriber;
 use oratio_store::SqliteStore;
@@ -62,6 +63,13 @@ fn main() {
             commands::remove_snippet,
             commands::get_autostart,
             commands::set_autostart,
+            commands::start_meeting,
+            commands::stop_meeting,
+            commands::list_meetings,
+            commands::get_meeting,
+            commands::meeting_transcript,
+            commands::rename_meeting,
+            commands::delete_meeting,
             commands::list_history,
             commands::copy_text,
             commands::delete_entry,
@@ -99,11 +107,13 @@ fn main() {
             };
             let history: Arc<dyn History> = store.clone();
             let lexicon: Arc<dyn Lexicon> = store.clone();
+            let meetings: Arc<dyn Meetings> = store.clone();
             let app_rules: Arc<dyn AppRules> = store;
             let _ = history.recover_interrupted();
             app.manage(history.clone());
             app.manage(lexicon.clone());
             app.manage(app_rules.clone());
+            app.manage(meetings.clone());
 
             // Engine: loads the model off the UI thread; hotkey is ignored until it is ready.
             let (etx, erx) = channel();
@@ -113,7 +123,7 @@ fn main() {
                 Ok(Box::new(WhisperTranscriber::load(&model)?))
             });
             let engine = Engine::spawn(loader, history, lexicon, etx);
-            let ctl = controller::spawn(handle.clone(), engine, app_rules, erx);
+            let ctl = controller::spawn(handle.clone(), engine, app_rules, meetings, erx);
             if let Ok(mut p) = ctl.shared.problems.lock() {
                 p.extend(startup_problems);
             }

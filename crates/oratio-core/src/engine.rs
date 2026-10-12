@@ -8,6 +8,7 @@
 
 use crate::history::{History, RecordingId};
 use crate::lexicon::{Fix, Lexicon};
+use crate::meeting::Source;
 use crate::commands;
 use crate::numbers;
 use crate::polish::{collapse_repeats, polish, LOOP_RUN};
@@ -29,6 +30,12 @@ pub enum Command {
     Discard,
     /// Load a different speech model while running. Only sent when no dictation is in progress.
     SwapModel(Loader),
+    /// A meeting starts: the next `MeetingAudio` belongs to it.
+    MeetingBegin,
+    /// 16 kHz mono audio from one side of the call. `at_ms` is when the chunk ended, counted from the
+    /// start of the meeting, so speech is timed correctly even when the computer plays no sound for a while.
+    MeetingAudio { source: Source, at_ms: u64, samples: Vec<f32> },
+    MeetingEnd,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -50,6 +57,10 @@ pub enum Event {
     Warning(String),
     /// The new model could not be loaded; the previous one is still in use.
     ModelSwapFailed(String),
+    /// One sentence or so of a meeting, already tidied.
+    MeetingLine { source: Source, start_ms: u64, text: String },
+    /// Everything said in the meeting has been recognised.
+    MeetingEnded,
 }
 
 pub struct Engine {
@@ -138,6 +149,42 @@ fn recognise(transcriber: &mut dyn Transcriber, history: &dyn History, take: &mu
         }
     }
 
+/// What the engine keeps while a meeting is being recorded: one segmenter per side of the call.
+struct MeetingRun {
+    you: Segmenter,
+    others: Segmenter,
+    last_at: [u64; 2],
+    fixes: Vec<Fix>,
+    words: Vec<String>,
+}
+
+impl MeetingRun {
+    fn side(&mut self, source: Source) -> (&mut Segmenter, &mut u64) {
+        match source {
+            Source::You => (&mut self.you, &mut self.last_at[0]),
+            Source::Others => (&mut self.others, &mut self.last_at[1]),
+        }
+    }
+}
+
+/// Recognises one stretch of speech from a meeting and reports it as a transcript line.
+fn meeting_line(transcriber: &mut dyn Transcriber, run: &MeetingRun, source: Source, end_ms: u64, mut audio: Vec<f32>, emit: &dyn Fn(Event)) {
+    let length_ms = audio.len() as u64 * 1000 / SAMPLE_RATE as u64;
+    normalize(&mut audio);
+    match catch_unwind(AssertUnwindSafe(|| transcriber.transcribe(&audio))) {
+        Ok(Ok(text)) => {
+            let (text, _) = collapse_repeats(text.trim());
+            if text.is_empty() {
+                return;
+            }
+            let text = numbers::format(&apply_fixes(&to_australian(&polish(&[text]), &run.words), &run.fixes));
+            emit(Event::MeetingLine { source, start_ms: end_ms.saturating_sub(length_ms), text });
+        }
+        Ok(Err(e)) => emit(Event::Warning(e.to_string())),
+        Err(_) => emit(Event::Warning("the recogniser crashed on part of the meeting".into())),
+    }
+}
+
 fn run(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, rx: Receiver<Command>, events: Sender<Event>) {
     let emit = |e: Event| {
         let _ = events.send(e);
@@ -151,6 +198,7 @@ fn run(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, rx: R
 
     let mut segmenter = Segmenter::new(SegmenterConfig::default());
     let mut take: Option<Take> = None;
+    let mut meeting: Option<MeetingRun> = None;
 
     while let Ok(cmd) = rx.recv() {
         match cmd {
@@ -242,6 +290,32 @@ fn run(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, rx: R
                 Ok(Err(e)) => emit(Event::ModelSwapFailed(e.to_string())),
                 Err(_) => emit(Event::ModelSwapFailed("the model loader crashed".into())),
             },
+            Command::MeetingBegin => {
+                let words = lexicon.words().unwrap_or_default();
+                let fixes = lexicon.fixes().unwrap_or_default();
+                transcriber.set_hints(&words);
+                meeting = Some(MeetingRun { you: Segmenter::new(SegmenterConfig::default()), others: Segmenter::new(SegmenterConfig::default()), last_at: [0; 2], fixes, words });
+            }
+            Command::MeetingAudio { source, at_ms, samples } => {
+                let Some(m) = meeting.as_mut() else { continue };
+                let (seg, last) = m.side(source);
+                *last = at_ms;
+                for utterance in seg.push(&samples) {
+                    meeting_line(transcriber.as_mut(), m, source, at_ms, utterance, &emit);
+                }
+            }
+            Command::MeetingEnd => {
+                if let Some(mut m) = meeting.take() {
+                    for source in [Source::You, Source::Others] {
+                        let (seg, last) = m.side(source);
+                        let (end, rest) = (*last, seg.flush());
+                        if let Some(rest) = rest {
+                            meeting_line(transcriber.as_mut(), &m, source, end, rest, &emit);
+                        }
+                    }
+                }
+                emit(Event::MeetingEnded);
+            }
             Command::Discard => {
                 segmenter = Segmenter::new(SegmenterConfig::default());
                 if let Some(t) = take.take() {
@@ -424,6 +498,27 @@ mod tests {
     fn spoken_numbers_are_written_as_numbers() {
         let e = dictate(vec![Ok("it costs twenty five dollars um I I think")], Arc::new(MemLexicon::default()), true);
         assert_eq!(e, Event::Finished { id: Some(1), text: "It costs $25 I think.".into(), enter: false });
+    }
+
+    #[test]
+    fn a_meeting_labels_each_side_and_times_the_lines() {
+        let (eng, rx, _, _) = start_with_lexicon(vec![Ok("hello everyone um thanks for joining"), Ok("morning twenty five of us")], Arc::new(MemHistory::default()), Arc::new(MemLexicon::default()));
+        eng.send(Command::MeetingBegin);
+        eng.send(Command::MeetingAudio { source: Source::You, at_ms: 5_000, samples: tone(500) });
+        eng.send(Command::MeetingAudio { source: Source::Others, at_ms: 9_000, samples: tone(500) });
+        eng.send(Command::MeetingEnd);
+        let mut lines = vec![];
+        loop {
+            match rx.recv_timeout(Duration::from_secs(2)).unwrap() {
+                Event::MeetingLine { source, start_ms, text } => lines.push((source, start_ms, text)),
+                Event::MeetingEnded => break,
+                _ => {}
+            }
+        }
+        assert_eq!(lines.len(), 2);
+        assert_eq!((lines[0].0, lines[0].2.as_str()), (Source::You, "Hello everyone thanks for joining."));
+        assert_eq!((lines[1].0, lines[1].2.as_str()), (Source::Others, "Morning 25 of us."));
+        assert!(lines[0].1 < 5_000 && lines[1].1 < 9_000 && lines[1].1 > 7_000, "{lines:?}");
     }
 
     #[test]

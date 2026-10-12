@@ -14,6 +14,7 @@
     <button class="nav-btn" data-view="dictate" data-tip="Dictate" aria-label="Dictate"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
     <button class="nav-btn" data-view="history" id="navHistory" data-tip="History" aria-label="History"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4M12 8v4.5l3 2"/></svg></button>
     <button class="nav-btn" data-view="words" data-tip="Words &amp; corrections" aria-label="Words and corrections"><svg viewBox="0 0 24 24"><path d="M4 18L9.5 5 15 18M6.2 13.5h6.6M17 9h3.5M17 13h3.5M17 17h3.5"/></svg></button>
+    <button class="nav-btn" data-view="meetings" id="navMeetings" data-tip="Meetings" aria-label="Meetings"><svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M2.5 19c.4-3.4 2.7-5.2 5.5-5.2s5.1 1.8 5.5 5.2M14.5 14.2c.9-.4 1.6-.5 2.5-.5 2.2 0 3.9 1.4 4.3 4.3"/></svg></button>
     <span class="rail-spacer"></span>
     <button class="nav-btn" data-view="settings" data-tip="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg></button>
   </nav>
@@ -62,6 +63,18 @@
         <div class="row"><button id="confirmNo" class="btn outline small">Cancel</button><button id="confirmYes" class="btn danger solid small">Delete all</button></div>
       </div>
       <div id="list"></div>
+    </section>
+
+    <!-- Meetings -->
+    <section id="view-meetings" class="view" hidden>
+      <div class="card">
+        <h2>Meeting transcript</h2>
+        <p class="hint">Records a call on this computer and writes it up. Your microphone is “You”; everything the computer plays, such as Teams, Zoom or Meet, is “Others”. Use headphones, otherwise your microphone also hears the other people through your speakers. Everything stays on this computer.</p>
+        <div class="row"><button id="meetingToggle" class="btn primary">Start meeting</button><span id="meetingClock" class="hint"></span></div>
+        <div id="meetingLive" class="transcript" hidden></div>
+      </div>
+      <div class="history-head"><h2>Past meetings</h2></div>
+      <div id="meetingList"></div>
     </section>
 
     <!-- Words & corrections -->

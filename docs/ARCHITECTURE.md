@@ -109,3 +109,12 @@ Pipeline order matters: recogniser → polish → Australian spelling → learne
 
 Rebinding the Ctrl+Win hotkey · export/backup of history and word lists · spooling raw audio to disk for
 re-transcription · single-instance lock · Parakeet adapter · macOS/Linux packaging (code is portable, untested).
+
+## Meetings
+
+`oratio_core::meeting` holds the pure parts (sources, lines, transcript formatting) and the `Meetings` port;
+`oratio-store` implements it (migration 4). The engine gets three more commands (`MeetingBegin`,
+`MeetingAudio`, `MeetingEnd`) and keeps one segmenter per side of the call. `oratio-audio` can record the
+computer's own output (`Capture::start_system`, WASAPI loopback) next to the microphone. "You" is the
+microphone and "Others" is the computer's audio, so who-said-what is exact for two sides; telling several
+remote people apart would need a speaker-recognition model and is not built yet.

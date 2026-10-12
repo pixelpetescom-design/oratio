@@ -9,6 +9,7 @@ pub mod error;
 pub mod history;
 pub mod hotkey;
 pub mod lexicon;
+pub mod meeting;
 pub mod models;
 pub mod numbers;
 pub mod overlay;

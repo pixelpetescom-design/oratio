@@ -14,6 +14,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use oratio_core::history::{History, Status};
 use oratio_core::apps::{AppAction, AppRule, AppRules};
 use oratio_core::lexicon::{learn_from_edit, Fix, Lexicon};
+use oratio_core::meeting::{transcript, Line, MeetingInfo, Meetings};
 use oratio_core::session::{Input, State as Phase};
 
 #[derive(Serialize)]
@@ -22,6 +23,8 @@ pub struct Snapshot {
     hotkey: &'static str,
     problems: Vec<String>,
     auto_paste: bool,
+    /// The meeting being recorded, if any.
+    meeting: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -40,6 +43,7 @@ pub fn get_snapshot(ctl: State<'_, Handle>) -> Snapshot {
         hotkey: TOGGLE_LABEL,
         problems: ctl.shared.problems.lock().map(|p| p.clone()).unwrap_or_default(),
         auto_paste: ctl.shared.auto_paste.load(Ordering::Relaxed),
+        meeting: Some(ctl.shared.meeting_id.load(Ordering::Relaxed)).filter(|id| *id != 0),
     }
 }
 
@@ -459,4 +463,45 @@ pub fn delete_model(app: AppHandle, file: String) -> Result<(), String> {
         return Err("that model came with the installer".into());
     }
     std::fs::remove_file(model.path).map_err(|e| e.to_string())
+}
+
+// ---- meetings --------------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn start_meeting(ctl: State<'_, Handle>) {
+    ctl.start_meeting();
+}
+
+#[tauri::command]
+pub fn stop_meeting(ctl: State<'_, Handle>) {
+    ctl.stop_meeting();
+}
+
+#[tauri::command]
+pub fn list_meetings(meetings: State<'_, Arc<dyn Meetings>>) -> Result<Vec<MeetingInfo>, String> {
+    meetings.list_meetings(100).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_meeting(meetings: State<'_, Arc<dyn Meetings>>, id: i64) -> Result<Vec<Line>, String> {
+    meetings.meeting_lines(id).map_err(|e| e.to_string())
+}
+
+/// The whole meeting as plain text, ready to copy.
+#[tauri::command]
+pub fn meeting_transcript(meetings: State<'_, Arc<dyn Meetings>>, id: i64) -> Result<String, String> {
+    Ok(transcript(&meetings.meeting_lines(id).map_err(|e| e.to_string())?))
+}
+
+#[tauri::command]
+pub fn rename_meeting(meetings: State<'_, Arc<dyn Meetings>>, id: i64, title: String) -> Result<(), String> {
+    meetings.rename_meeting(id, &title).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_meeting(ctl: State<'_, Handle>, meetings: State<'_, Arc<dyn Meetings>>, id: i64) -> Result<(), String> {
+    if ctl.shared.meeting_id.load(Ordering::Relaxed) == id {
+        return Err("This meeting is still being recorded.".into());
+    }
+    meetings.delete_meeting(id).map_err(|e| e.to_string())
 }

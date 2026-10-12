@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use oratio_core::apps::{AppAction, AppRule, AppRules};
 use oratio_core::history::{Entry, History, RecordingId, Status};
 use oratio_core::lexicon::{Fix, Lexicon};
+use oratio_core::meeting::{Line, MeetingId, MeetingInfo, Meetings, Source};
 use oratio_core::CoreError;
 
 /// Append-only list of schema migrations; index + 1 is the `user_version`.
@@ -49,6 +50,23 @@ const MIGRATIONS: &[&str] = &["
         pattern TEXT PRIMARY KEY COLLATE NOCASE,
         action TEXT NOT NULL,
         added_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+",
+// Meetings: a long recording with who said what.
+"
+    CREATE TABLE meetings (
+        id INTEGER PRIMARY KEY,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        title TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE meeting_lines (
+        meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+        idx INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        start_ms INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        PRIMARY KEY (meeting_id, idx)
     );
 "];
 
@@ -280,9 +298,85 @@ impl AppRules for SqliteStore {
     }
 }
 
+impl Meetings for SqliteStore {
+    fn begin_meeting(&self, started_at_ms: i64) -> Result<MeetingId, CoreError> {
+        let c = self.conn()?;
+        c.execute("INSERT INTO meetings (started_at) VALUES (?1)", params![started_at_ms]).map_err(err)?;
+        Ok(c.last_insert_rowid())
+    }
+
+    fn append_line(&self, id: MeetingId, line: &Line) -> Result<(), CoreError> {
+        self.conn()?
+            .execute(
+                "INSERT INTO meeting_lines (meeting_id, idx, source, start_ms, text)
+                 SELECT ?1, COALESCE(MAX(idx) + 1, 0), ?2, ?3, ?4 FROM meeting_lines WHERE meeting_id = ?1",
+                params![id, line.source.id(), line.start_ms as i64, line.text],
+            )
+            .map_err(err)?;
+        Ok(())
+    }
+
+    fn finish_meeting(&self, id: MeetingId, ended_at_ms: i64) -> Result<(), CoreError> {
+        self.conn()?.execute("UPDATE meetings SET ended_at = ?2 WHERE id = ?1", params![id, ended_at_ms]).map_err(err)?;
+        Ok(())
+    }
+
+    fn rename_meeting(&self, id: MeetingId, title: &str) -> Result<(), CoreError> {
+        self.conn()?.execute("UPDATE meetings SET title = ?2 WHERE id = ?1", params![id, title.trim()]).map_err(err)?;
+        Ok(())
+    }
+
+    fn delete_meeting(&self, id: MeetingId) -> Result<(), CoreError> {
+        self.conn()?.execute("DELETE FROM meetings WHERE id = ?1", params![id]).map_err(err)?;
+        Ok(())
+    }
+
+    fn list_meetings(&self, limit: u32) -> Result<Vec<MeetingInfo>, CoreError> {
+        let c = self.conn()?;
+        let mut stmt = c
+            .prepare(
+                "SELECT m.id, m.started_at, m.ended_at, m.title, (SELECT COUNT(*) FROM meeting_lines l WHERE l.meeting_id = m.id)
+                 FROM meetings m ORDER BY m.id DESC LIMIT ?1",
+            )
+            .map_err(err)?;
+        let rows = stmt
+            .query_map(params![limit], |r| Ok(MeetingInfo { id: r.get(0)?, started_at_ms: r.get(1)?, ended_at_ms: r.get(2)?, title: r.get(3)?, lines: r.get(4)? }))
+            .map_err(err)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(err)?;
+        Ok(rows)
+    }
+
+    fn meeting_lines(&self, id: MeetingId) -> Result<Vec<Line>, CoreError> {
+        let c = self.conn()?;
+        let mut stmt = c.prepare("SELECT source, start_ms, text FROM meeting_lines WHERE meeting_id = ?1 ORDER BY idx").map_err(err)?;
+        let rows: Vec<(String, i64, String)> = stmt.query_map(params![id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(err)?.collect::<Result<_, _>>().map_err(err)?;
+        // A line from a source this version doesn't know (written by a newer build) is skipped, not fatal.
+        Ok(rows.into_iter().filter_map(|(s, at, text)| Source::parse(&s).map(|source| Line { source, start_ms: at.max(0) as u64, text })).collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn meetings_keep_their_lines_in_order_and_delete_cleanly() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let id = s.begin_meeting( 1_000).unwrap();
+        s.append_line( id, &Line { source: Source::You, start_ms: 500, text: "Hi.".into() }).unwrap();
+        s.append_line( id, &Line { source: Source::Others, start_ms: 2_500, text: "Hello.".into() }).unwrap();
+        assert_eq!(s.list_meetings( 10).unwrap()[0].lines, 2);
+        assert_eq!(s.list_meetings( 10).unwrap()[0].ended_at_ms, None);
+        s.finish_meeting( id, 9_000).unwrap();
+        s.rename_meeting( id, "  Standup ").unwrap();
+        let info = &s.list_meetings( 10).unwrap()[0];
+        assert_eq!((info.ended_at_ms, info.title.as_str()), (Some(9_000), "Standup"));
+        assert_eq!(s.meeting_lines( id).unwrap().iter().map(|l| (l.source, l.start_ms)).collect::<Vec<_>>(), vec![(Source::You, 500), (Source::Others, 2_500)]);
+        s.delete_meeting( id).unwrap();
+        assert!(s.list_meetings( 10).unwrap().is_empty());
+        assert!(s.meeting_lines( id).unwrap().is_empty(), "lines go with their meeting");
+    }
 
     #[test]
     fn roundtrip_orders_segments_and_lists_newest_first() {
