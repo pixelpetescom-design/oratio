@@ -451,11 +451,18 @@ applyTrigger();
 // Hold-to-talk and spoken commands.
 let holdTalk = localStorage.getItem("holdTalk") === "on";
 let spoken = localStorage.getItem("spoken") !== "off";
+let live = localStorage.getItem("live") !== "off";
 function applyBehaviour() {
   $("holdtalk").checked = holdTalk;
   $("spoken").checked = spoken;
-  invoke("set_behaviour", { spokenCommands: spoken, holdToTalk: holdTalk });
+  $("live").checked = live;
+  invoke("set_behaviour", { spokenCommands: spoken, holdToTalk: holdTalk, liveTyping: live });
 }
+$("live").onchange = () => {
+  live = $("live").checked;
+  localStorage.setItem("live", live ? "on" : "off");
+  applyBehaviour();
+};
 $("holdtalk").onchange = () => {
   holdTalk = $("holdtalk").checked;
   localStorage.setItem("holdTalk", holdTalk ? "on" : "off");

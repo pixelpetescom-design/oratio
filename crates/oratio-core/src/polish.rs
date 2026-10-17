@@ -151,6 +151,16 @@ pub fn follow_on(previous: &str, text: &str, words: &[String]) -> String {
     }
 }
 
+/// What to insert so `text` follows `previous` already on screen: just the text at the very start or after a
+/// line break, otherwise with the joining space (unless it opens with closing punctuation).
+pub fn append(previous: &str, text: &str) -> String {
+    if previous.is_empty() || previous.ends_with(['\n', '\r']) {
+        text.to_string()
+    } else {
+        continuation(text)
+    }
+}
+
 /// The relaxed style for chat apps: starts in lower case and has no closing full stop.
 pub fn casual(text: &str, words: &[String]) -> String {
     let trimmed = text.trim_end();
@@ -258,6 +268,14 @@ mod tests {
         assert_eq!(follow_on("Then we met", "NASA staff.", &none), "NASA staff.");
         assert_eq!(follow_on("Then we met", "Friday morning.", &none), "Friday morning.");
         assert_eq!(follow_on("He said \"stop.\"", "Then left.", &none), "Then left.", "a closing quote after a full stop still ends the sentence");
+    }
+
+    #[test]
+    fn appending_adds_the_joining_space_only_mid_line() {
+        assert_eq!(append("", "Hello."), "Hello.");
+        assert_eq!(append("Hi", "there."), " there.");
+        assert_eq!(append("Hi", ", there."), ", there.");
+        assert_eq!(append("Hi\n", "there."), "there.");
     }
 
     #[test]

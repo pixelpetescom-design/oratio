@@ -70,9 +70,10 @@ pub fn set_search(ctl: State<'_, Handle>, enabled: bool, key: String, engine: St
     }
 }
 
-/// How dictation behaves: spoken commands on/off, and hold-to-talk.
+/// How dictation behaves: spoken commands on/off, hold-to-talk, and typing as you speak.
 #[tauri::command]
-pub fn set_behaviour(ctl: State<'_, Handle>, spoken_commands: bool, hold_to_talk: bool) {
+pub fn set_behaviour(ctl: State<'_, Handle>, spoken_commands: bool, hold_to_talk: bool, live_typing: bool) {
+    ctl.shared.live_typing.store(live_typing, Ordering::Relaxed);
     ctl.shared.spoken_commands.store(spoken_commands, Ordering::Relaxed);
     ctl.shared.hold_to_talk.store(hold_to_talk, Ordering::Relaxed);
 }

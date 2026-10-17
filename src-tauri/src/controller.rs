@@ -15,7 +15,7 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tauri_plugin_opener::OpenerExt;
 use oratio_audio::Capture;
 use oratio_core::engine::{Command, Engine, Event};
-use oratio_core::polish::continuation;
+use oratio_core::polish::{append, continuation};
 use oratio_core::apps::{action_for, AppAction, AppRules};
 use oratio_core::meeting::{Line, MeetingId, Meetings, Source};
 use oratio_core::search::{custom_url, query, route, url, Engine as SearchEngine};
@@ -46,6 +46,8 @@ pub struct Shared {
     pub spoken_commands: AtomicBool,
     /// Holding Ctrl+Win records only while held.
     pub hold_to_talk: AtomicBool,
+    /// Type each sentence as soon as it is recognised, instead of everything when dictation stops.
+    pub live_typing: AtomicBool,
     /// Default voice-search engine id ("google", "youtube"…, or "custom").
     pub search_engine: Mutex<String>,
     /// Address template for the "custom" engine, with {q} for the query.
@@ -137,6 +139,8 @@ struct Controller {
     last_paste: Option<Instant>,
     /// What that text was, so the next dictation can carry on from it.
     last_text: String,
+    /// Something was typed live during the current dictation.
+    live_typed: bool,
 }
 
 /// Starts the controller thread. `engine_events` is the receiving end of the
@@ -149,6 +153,7 @@ pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, meeti
         search_pending: AtomicBool::new(false),
         spoken_commands: AtomicBool::new(true),
         hold_to_talk: AtomicBool::new(false),
+        live_typing: AtomicBool::new(true),
         search_engine: Mutex::new("google".into()),
         search_custom: Mutex::new(String::new()),
         trigger: Mutex::new(oratio_core::hotkey::Trigger::DEFAULT),
@@ -186,6 +191,7 @@ pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, meeti
         stopped_at: None,
         last_paste: None,
         last_text: String::new(),
+        live_typed: false,
     };
     let _ = std::thread::Builder::new().name("oratio-controller".into()).spawn(move || {
         for msg in rx {
@@ -226,12 +232,19 @@ impl Controller {
         match fx {
             Effect::StartRecording => {
                 let started_at_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
-                // What the focused app wants (chat style) and what we last typed there, so the new words fit in.
-                let casual = oratio_window::active_app()
-                    .and_then(|focused| self.app_rules.rules().ok().and_then(|rules| action_for(&rules, &focused)))
-                    .is_some_and(AppAction::is_casual);
+                // What the focused app wants (chat style, or no typing at all) and what we last typed there,
+                // so the new words fit in.
+                let rule = oratio_window::active_app().and_then(|focused| self.app_rules.rules().ok().and_then(|rules| action_for(&rules, &focused)));
+                let casual = rule.is_some_and(AppAction::is_casual);
                 let previous = self.last_paste.filter(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS)).map(|_| self.last_text.clone());
-                self.engine.send(Command::Begin { started_at_ms, spoken_commands: self.shared.spoken_commands.load(Ordering::Relaxed), previous, casual });
+                // Typing as you speak needs the keys to be up while it types, and a plain typed result (not a search).
+                let live = self.shared.live_typing.load(Ordering::Relaxed)
+                    && self.shared.auto_paste.load(Ordering::Relaxed)
+                    && !self.shared.hold_to_talk.load(Ordering::Relaxed)
+                    && !self.shared.search_pending.load(Ordering::Relaxed)
+                    && rule != Some(AppAction::CopyOnly);
+                self.live_typed = false;
+                self.engine.send(Command::Begin { started_at_ms, spoken_commands: self.shared.spoken_commands.load(Ordering::Relaxed), previous, casual, live });
                 let audio = self.engine.sender();
                 let mic = self.shared.mic.lock().ok().and_then(|m| m.clone());
                 match Capture::start(mic, move |chunk| {
@@ -498,6 +511,22 @@ impl Controller {
                 self.hide_overlay_later();
             }
             Event::Warning(m) => self.problem(m),
+            Event::LiveText { text, enter } => self.type_live(&text, enter),
+            Event::LiveScratch => {
+                let recent = self.last_paste.is_some_and(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS));
+                let undone = recent && oratio_keys::wait_for_modifiers_released(Duration::from_secs(2)) && oratio_paste::undo().is_ok();
+                let _ = self.app.emit("scratched", undone);
+            }
+            Event::LiveFinished { text, .. } => {
+                let elapsed_ms = self.stopped_at.take().map(|t| t.elapsed().as_millis() as u64);
+                // The clipboard ends up holding the whole dictation, not just its last sentence.
+                let copied = !text.is_empty() && self.app.clipboard().write_text(text.clone()).is_ok();
+                let pasted = self.live_typed;
+                let _ = self.app.emit("finished", Finished { text, copied, pasted, searched: false, copy_only: false, elapsed_ms });
+                let _ = self.app.emit("history", ());
+                self.apply(Input::Finished);
+                self.hide_overlay_later();
+            }
             Event::MeetingLine { source, start_ms, text } => {
                 if let Some(m) = &self.meeting {
                     let line = Line { source, start_ms, text };
@@ -516,6 +545,38 @@ impl Controller {
                 }
                 self.shared.meeting_id.store(0, Ordering::Relaxed);
                 let _ = self.app.emit("meeting-state", None::<MeetingId>);
+            }
+        }
+    }
+
+    /// Types one sentence into the focused app right now, while the user is still talking.
+    fn type_live(&mut self, text: &str, enter: bool) {
+        let rule = oratio_window::active_app().and_then(|focused| self.app_rules.rules().ok().and_then(|rules| action_for(&rules, &focused)));
+        if rule == Some(AppAction::CopyOnly) {
+            return; // the whole text is put on the clipboard when dictation ends
+        }
+        let recent = self.last_paste.is_some_and(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS));
+        let insert = if recent { append(&self.last_text, text) } else { text.to_string() };
+        if !insert.is_empty() {
+            if self.app.clipboard().write_text(insert).is_err() {
+                return;
+            }
+            // A held Ctrl/Win/Shift/Alt would turn the paste into some other shortcut, so wait for them to come up.
+            if !oratio_keys::wait_for_modifiers_released(Duration::from_secs(2)) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(PASTE_DELAY_MS));
+            if let Err(e) = oratio_paste::paste_from_clipboard() {
+                self.problem(format!("Could not type into the active app ({e}). The text is on your clipboard."));
+                return;
+            }
+            self.last_paste = Some(Instant::now());
+            self.last_text = text.to_string();
+            self.live_typed = true;
+        }
+        if enter || rule.is_some_and(AppAction::presses_enter) {
+            if let Err(e) = oratio_paste::press_enter() {
+                self.problem(format!("Could not press Enter ({e})."));
             }
         }
     }
