@@ -16,6 +16,7 @@ use tauri_plugin_opener::OpenerExt;
 use oratio_audio::Capture;
 use oratio_core::engine::{Command, Engine, Event};
 use oratio_core::polish::{append, continuation};
+use oratio_core::vocab::replace_phrase;
 use oratio_core::apps::{action_for, AppAction, AppRules};
 use oratio_core::meeting::{Line, MeetingId, Meetings, Source};
 use oratio_core::search::{custom_url, query, route, url, Engine as SearchEngine};
@@ -141,6 +142,8 @@ struct Controller {
     last_text: String,
     /// Something was typed live during the current dictation.
     live_typed: bool,
+    /// Exactly what was last pasted (with its joining space), so a spoken correction can redo it.
+    last_insert: String,
 }
 
 /// Starts the controller thread. `engine_events` is the receiving end of the
@@ -192,6 +195,7 @@ pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, meeti
         last_paste: None,
         last_text: String::new(),
         live_typed: false,
+        last_insert: String::new(),
     };
     let _ = std::thread::Builder::new().name("oratio-controller".into()).spawn(move || {
         for msg in rx {
@@ -424,6 +428,7 @@ impl Controller {
                     && self.shared.search_enabled.load(Ordering::Relaxed)
                     && !text.is_empty();
                 let (mut searched, mut copied, mut pasted, mut copy_only) = (false, false, false, false);
+                let mut inserted = String::new();
                 if search {
                     let address = self.search_address(&text);
                     match self.app.opener().open_url(address, None::<&str>) {
@@ -445,6 +450,7 @@ impl Controller {
                         // don't run together; a manual paste stays clean.
                         let continuing = type_it && self.last_paste.is_some_and(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS));
                         let clip = if continuing { continuation(&text) } else { text.clone() };
+                        inserted = clip.clone();
                         copied = self.app.clipboard().write_text(clip).is_ok();
                         if !copied {
                             self.problem("Could not write to the clipboard; the text is saved in history.".into());
@@ -468,6 +474,7 @@ impl Controller {
                                 if copied {
                                     self.last_paste = Some(Instant::now());
                                     self.last_text = text.clone();
+                                    self.last_insert = inserted.clone();
                                 }
                                 if press_enter {
                                     if let Err(e) = oratio_paste::press_enter() {
@@ -510,6 +517,7 @@ impl Controller {
             }
             Event::Warning(m) => self.problem(m),
             Event::LiveText { text, enter } => self.type_live(&text, enter),
+            Event::Replace { from, to } => self.correct_typed(&from, &to),
             Event::LiveScratch => {
                 let recent = self.last_paste.is_some_and(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS));
                 let undone = recent && oratio_keys::wait_for_modifiers_released(Duration::from_secs(2)) && oratio_paste::undo().is_ok();
@@ -547,6 +555,33 @@ impl Controller {
         }
     }
 
+    /// "Correction, change X to Y": undoes the last thing typed and types it again with the fix.
+    fn correct_typed(&mut self, from: &str, to: &str) {
+        let recent = self.last_paste.is_some_and(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS));
+        let fixed = recent.then(|| replace_phrase(&self.last_insert, from, to)).flatten();
+        let Some(fixed) = fixed.filter(|_| self.shared.auto_paste.load(Ordering::Relaxed)) else {
+            self.problem(format!("Couldn't find “{from}” in what was just typed."));
+            return;
+        };
+        if !oratio_keys::wait_for_modifiers_released(Duration::from_secs(2)) {
+            return;
+        }
+        let done = oratio_paste::undo().is_ok()
+            && self.app.clipboard().write_text(fixed.clone()).is_ok()
+            && {
+                std::thread::sleep(Duration::from_millis(PASTE_DELAY_MS));
+                oratio_paste::paste_from_clipboard().is_ok()
+            };
+        if done {
+            self.last_paste = Some(Instant::now());
+            self.last_text = fixed.trim_start().to_string();
+            self.last_insert = fixed;
+            let _ = self.app.emit("corrected", ());
+        } else {
+            self.problem("Couldn't change the text that was just typed.".into());
+        }
+    }
+
     /// Types one sentence into the focused app right now, while the user is still talking.
     fn type_live(&mut self, text: &str, enter: bool) {
         let rule = oratio_window::active_app().and_then(|focused| self.app_rules.rules().ok().and_then(|rules| action_for(&rules, &focused)));
@@ -556,7 +591,7 @@ impl Controller {
         let recent = self.last_paste.is_some_and(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS));
         let insert = if recent { append(&self.last_text, text) } else { text.to_string() };
         if !insert.is_empty() {
-            if self.app.clipboard().write_text(insert).is_err() {
+            if self.app.clipboard().write_text(insert.clone()).is_err() {
                 return;
             }
             // A held Ctrl/Win/Shift/Alt would turn the paste into some other shortcut, so wait for them to come up.
@@ -570,6 +605,7 @@ impl Controller {
             }
             self.last_paste = Some(Instant::now());
             self.last_text = text.to_string();
+            self.last_insert = insert;
             self.live_typed = true;
         }
         if enter || rule.is_some_and(AppAction::presses_enter) {

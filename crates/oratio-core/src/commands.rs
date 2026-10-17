@@ -10,6 +10,8 @@ pub struct Parsed {
     pub scratch: bool,
     /// A trailing "press enter": send Enter after typing.
     pub enter: bool,
+    /// "correction change tomorrow to Friday": swap the first phrase for the second in what was just typed.
+    pub replace: Option<(String, String)>,
 }
 
 #[derive(Clone, Copy)]
@@ -58,12 +60,29 @@ fn capitalise(word: &str) -> String {
         .collect()
 }
 
+/// "correction (change|replace) X to|with Y" as the whole utterance. The word "correction" is required so that
+/// ordinary dictation such as "Replace the batteries with new ones" is never taken for a command.
+fn parse_replace(tokens: &[&str], cores: &[String]) -> Option<(String, String)> {
+    if cores.first().map(String::as_str) != Some("correction") {
+        return None;
+    }
+    let start = if matches!(cores.get(1).map(String::as_str), Some("change" | "replace")) { 2 } else { 1 };
+    let sep = cores.iter().skip(start + 1).position(|c| c == "to" || c == "with")? + start + 1;
+    let (from, to) = (cores[start..sep].join(" "), tokens[sep + 1..].join(" "));
+    let to = to.trim().trim_end_matches('.').trim().to_string();
+    (!from.is_empty() && !to.is_empty() && sep - start <= 6 && tokens.len() - sep <= 7).then_some((from, to))
+}
+
 pub fn apply(text: &str) -> Parsed {
     let mut tokens: Vec<&str> = text.split_whitespace().collect();
     let cores: Vec<String> = tokens.iter().map(|t| core(t)).collect();
 
+    if let Some(replace) = parse_replace(&tokens, &cores) {
+        return Parsed { replace: Some(replace), ..Default::default() };
+    }
+
     if SCRATCH.contains(&cores.join(" ").as_str()) {
-        return Parsed { text: String::new(), scratch: true, enter: false };
+        return Parsed { scratch: true, ..Default::default() };
     }
 
     let mut enter = false;
@@ -131,7 +150,7 @@ pub fn apply(text: &str) -> Parsed {
             text.pop();
         }
     }
-    Parsed { text, scratch: false, enter }
+    Parsed { text, enter, ..Default::default() }
 }
 
 #[cfg(test)]
@@ -140,6 +159,19 @@ mod tests {
 
     fn t(s: &str) -> String {
         apply(s).text
+    }
+
+    #[test]
+    fn a_correction_swaps_one_phrase_for_another() {
+        let want = Some(("tomorrow".to_string(), "Friday".to_string()));
+        assert_eq!(apply("Correction, change tomorrow to Friday.").replace, want);
+        assert_eq!(apply("correction replace tomorrow with Friday").replace, want);
+        assert_eq!(apply("Correction tomorrow to Friday").replace, want);
+        assert_eq!(apply("correction the red car with a blue truck").replace, Some(("the red car".into(), "a blue truck".into())));
+        for ordinary in ["Replace the batteries with new ones.", "Change tomorrow to Friday.", "The correction is small.", "Correction.", "Correction change to Friday."] {
+            assert_eq!(apply(ordinary).replace, None, "{ordinary}");
+        }
+        assert_eq!(apply("Correction tomorrow to Friday").text, "");
     }
 
     #[test]

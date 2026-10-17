@@ -13,7 +13,7 @@ use crate::backtrack;
 use crate::commands;
 use crate::numbers;
 use crate::polish::{append, casual, collapse_repeats, follow_on, polish, LOOP_RUN};
-use crate::vocab::apply_fixes;
+use crate::vocab::{apply_fixes, replace_phrase};
 use crate::spelling::to_australian;
 use crate::segmenter::{normalize, rms, Segmenter, SegmenterConfig, SAMPLE_RATE};
 use crate::stt::Transcriber;
@@ -75,6 +75,8 @@ pub enum Event {
     LiveText { text: String, enter: bool },
     /// Live typing: "scratch that", so the last typed sentence should be undone.
     LiveScratch,
+    /// "Correction, change X to Y": put Y where X is in what was just typed.
+    Replace { from: String, to: String },
     /// Live typing: the dictation is over. `text` is everything that was typed (empty if nothing was said).
     LiveFinished { id: Option<RecordingId>, text: String },
 }
@@ -132,6 +134,8 @@ struct Take {
     live: bool,
     /// Live mode: the sentences already handed over for typing, in order.
     chunks: Vec<String>,
+    /// Corrections the user spoke, to be remembered as learned fixes.
+    learn: Vec<Fix>,
 }
 
 fn recognise(transcriber: &mut dyn Transcriber, history: &dyn History, take: &mut Take, mut audio: Vec<f32>, segmenter_events: &dyn Fn(Event)) {
@@ -173,6 +177,16 @@ fn recognise(transcriber: &mut dyn Transcriber, history: &dyn History, take: &mu
         }
     }
 
+/// Remembers spoken corrections: the next time the wrong phrase is heard it is fixed automatically.
+fn learn(lexicon: &dyn Lexicon, fixes: &[Fix]) {
+    for fix in fixes {
+        let _ = lexicon.add_fix(fix);
+        if fix.to.split_whitespace().count() == 1 && fix.to.chars().count() >= 3 {
+            let _ = lexicon.add_word(&fix.to);
+        }
+    }
+}
+
 /// Live typing: tidies one recognised sentence the way the whole-dictation pipeline would, and hands it over.
 fn live_segment(take: &mut Take, raw: &str, emit: &dyn Fn(Event)) {
     let said = backtrack::apply(raw);
@@ -181,6 +195,15 @@ fn live_segment(take: &mut Take, raw: &str, emit: &dyn Fn(Event)) {
     if parsed.scratch {
         take.chunks.pop();
         emit(Event::LiveScratch);
+        return;
+    }
+    if let Some((from, to)) = parsed.replace {
+        // Fix the last sentence that has the phrase, so the saved text matches what is now on screen.
+        if let Some((i, fixed)) = take.chunks.iter().enumerate().rev().find_map(|(i, c)| replace_phrase(c, &from, &to).map(|f| (i, f))) {
+            take.chunks[i] = fixed;
+        }
+        take.learn.push(Fix { from: from.clone(), to: to.clone() });
+        emit(Event::Replace { from, to });
         return;
     }
     let before = take.chunks.last().map(String::as_str).or(take.previous.as_deref());
@@ -272,7 +295,7 @@ fn run(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, rx: R
                 });
                 transcriber.set_hints(&words);
                 match history.begin(started_at_ms) {
-                    Ok(id) => take = Some(Take { id, texts: vec![], last_error: None, max_level: 0.0, fixes, words: words.clone(), snippets, spoken_commands, previous, casual, live, chunks: vec![] }),
+                    Ok(id) => take = Some(Take { id, texts: vec![], last_error: None, max_level: 0.0, fixes, words: words.clone(), snippets, spoken_commands, previous, casual, live, chunks: vec![], learn: vec![] }),
                     Err(e) => emit(Event::Failed { reason: e.to_string() }),
                 }
             }
@@ -308,6 +331,7 @@ fn run(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, rx: R
                     }
                     continue;
                 }
+                learn(lexicon.as_ref(), &std::mem::take(&mut t.learn));
                 if t.live {
                     // Everything was typed as it was said; all that is left is to keep the full text.
                     let mut text = String::new();
@@ -333,6 +357,13 @@ fn run(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, rx: R
                 if parsed.scratch {
                     let _ = history.delete(t.id);
                     emit(Event::Scratched);
+                    continue;
+                }
+                if let Some((from, to)) = parsed.replace {
+                    let _ = history.delete(t.id);
+                    learn(lexicon.as_ref(), &[Fix { from: from.clone(), to: to.clone() }]);
+                    emit(Event::Replace { from, to });
+                    emit(Event::Finished { id: None, text: String::new(), enter: false });
                     continue;
                 }
                 // Fit it to the surroundings: chat apps get a relaxed style, and a dictation that continues
@@ -636,6 +667,14 @@ mod tests {
                 Event::LiveFinished { id: None, text: String::new() },
             ]
         );
+    }
+
+    #[test]
+    fn a_spoken_correction_is_reported_and_remembered() {
+        let lexicon = Arc::new(MemLexicon::default());
+        let e = dictate(vec![Ok("correction change tomorrow to Friday")], lexicon.clone(), true);
+        assert_eq!(e, Event::Finished { id: None, text: String::new(), enter: false });
+        assert_eq!(lexicon.fixes().unwrap(), vec![Fix { from: "tomorrow".into(), to: "Friday".into() }]);
     }
 
     #[test]

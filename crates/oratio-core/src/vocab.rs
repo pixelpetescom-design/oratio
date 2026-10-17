@@ -104,6 +104,12 @@ fn apply_fixes_to_line(text: &str, fixes: &[Fix]) -> String {
     out.join(" ")
 }
 
+/// Replaces the phrase `from` with `to` (whole words, any case), or `None` if `from` does not appear.
+pub fn replace_phrase(text: &str, from: &str, to: &str) -> Option<String> {
+    let changed = apply_fixes(text, &[Fix { from: from.to_string(), to: to.to_string() }]);
+    (changed != text).then_some(changed)
+}
+
 /// Hint text for the recogniser: the user's own words, newest first, kept short enough
 /// for the model's prompt window.
 pub fn glossary_prompt<S: AsRef<str>>(words: &[S]) -> String {
@@ -173,6 +179,14 @@ mod tests {
         let rules = [fix("cooper", "Cooper"), fix("cooper nettys", "kubernetes")];
         assert_eq!(apply_fixes("Cooper nettys rocks.", &rules), "Kubernetes rocks.");
         assert_eq!(apply_fixes("no rules here", &[]), "no rules here");
+    }
+
+    #[test]
+    fn replace_phrase_swaps_whole_words_and_reports_a_miss() {
+        assert_eq!(replace_phrase("Meet tomorrow at six.", "tomorrow", "Friday").as_deref(), Some("Meet Friday at six."));
+        assert_eq!(replace_phrase("Tomorrow works.", "tomorrow", "friday").as_deref(), Some("Friday works."));
+        assert_eq!(replace_phrase("Meet at six.", "tomorrow", "Friday"), None);
+        assert_eq!(replace_phrase("Meet tomorrows.", "tomorrow", "Friday"), None);
     }
 
     #[test]

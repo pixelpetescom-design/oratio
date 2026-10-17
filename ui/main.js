@@ -737,6 +737,7 @@ listen("finished", ({ payload }) => {
   liveText = "";
   if (payload.text && !$("navHistory").classList.contains("active")) $("navHistory").classList.add("badge");
 });
+listen("corrected", () => toast("Fixed what you just typed"));
 listen("scratched", ({ payload }) => {
   setLive(payload ? "Undid your last dictation." : "Nothing recent to undo.");
   toast(payload ? "Undid last dictation" : "Nothing recent to undo", payload ? "ok" : "bad");

@@ -106,6 +106,72 @@ pub fn polish<S: AsRef<str>>(segments: &[S]) -> String {
         }
         Some(_) => {}
     }
+    questionise(&out)
+}
+
+const QUESTION_WORDS: &[&str] = &["what", "when", "where", "why", "who", "whom", "whose", "which", "how"];
+const AUXILIARIES: &[&str] = &[
+    "is", "are", "was", "were", "am", "can", "could", "will", "would", "should", "shall", "may", "might", "has", "had", "isn't", "aren't", "wasn't", "weren't", "can't", "couldn't",
+    "won't", "wouldn't", "shouldn't", "hasn't", "hadn't", "haven't", "ain't",
+];
+const DO_FORMS: &[&str] = &["do", "does", "did", "don't", "doesn't", "didn't", "have"];
+const SUBJECTS: &[&str] = &["you", "we", "they", "he", "she", "it", "i", "anyone", "everyone", "anybody", "somebody", "people", "there", "this", "that", "these", "those"];
+const HOW_QUANTITY: &[&str] = &["much", "many", "long", "old", "far", "often", "about", "come", "big", "tall", "soon", "far", "wide", "heavy", "fast"];
+const TAGS: &[&str] = &[
+    ", right", ", okay", ", ok", ", isn't it", ", aren't you", ", don't you", ", doesn't it", ", won't you", ", can't you", ", wasn't it", ", didn't you", ", haven't you", ", hasn't it",
+    ", isn't that right", ", is that right", ", is it", ", are you", ", do you", ", did you", ", will you", ", would you", ", can you", ", could you",
+];
+
+/// Whether a sentence reads as a question: it opens with a question word and a verb ("what is", "how much"), opens
+/// with a verb ("are you", "does it"), or ends in a tag ("…, right").
+fn is_question(sentence: &str) -> bool {
+    let lower = sentence.trim().trim_end_matches(['.', '!', '?']).to_lowercase();
+    let words: Vec<&str> = lower.split_whitespace().map(|w| w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'')).collect();
+    let (Some(first), second) = (words.first().copied(), words.get(1).copied()) else { return false };
+    if TAGS.iter().any(|tag| lower.ends_with(tag)) {
+        return true;
+    }
+    if QUESTION_WORDS.contains(&first) {
+        return match (first, second) {
+            (_, None) => false,
+            ("what", Some("a" | "an")) => false, // "What a day."
+            ("who" | "whom", _) => true,
+            ("how", Some(next)) if HOW_QUANTITY.contains(&next) => true,
+            (_, Some(next)) if AUXILIARIES.contains(&next) || DO_FORMS.contains(&next) && next != "have" || matches!(next, "about" | "if" | "not") => true,
+            // "what time is it", "which one is better": a short noun phrase, then the verb, with no subject in between.
+            (_, Some(_)) => words.iter().skip(2).take(3).take_while(|w| !SUBJECTS.contains(w)).any(|w| AUXILIARIES.contains(w) || DO_FORMS.contains(w) && *w != "have"),
+        };
+    }
+    match (first, second) {
+        (_, None) => false,
+        (f, Some(next)) if AUXILIARIES.contains(&f) => next != "not" && !(f == "may" && next == "be") ,
+        ("does" | "did" | "doesn't" | "didn't", Some(next)) => SUBJECTS.contains(&next) || matches!(next, "the" | "your" | "my" | "our" | "his" | "her" | "their" | "a" | "an"),
+        ("do" | "don't", Some(next)) => SUBJECTS.contains(&next),
+        ("have", Some(next)) => SUBJECTS.contains(&next) && next != "this" && next != "that",
+        _ => false,
+    }
+}
+
+/// Turns the full stop of each sentence that is a question into a question mark.
+fn questionise(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut sentence = String::new();
+    let chars: Vec<char> = text.chars().collect();
+    for (i, &c) in chars.iter().enumerate() {
+        let ends_here = c == '.' && chars.get(i + 1).is_none_or(|n| n.is_whitespace()) && !sentence.ends_with('.');
+        if ends_here && is_question(&sentence) {
+            out.push_str(&sentence);
+            out.push('?');
+            sentence.clear();
+            continue;
+        }
+        sentence.push(c);
+        if matches!(c, '.' | '!' | '?') && chars.get(i + 1).is_none_or(|n| n.is_whitespace()) {
+            out.push_str(&sentence);
+            sentence.clear();
+        }
+    }
+    out.push_str(&sentence);
     out
 }
 
@@ -252,7 +318,7 @@ mod tests {
         assert_eq!(polish(&["we went to the shop and"]), "We went to the shop and");
         assert_eq!(polish(&["I think that it is because"]), "I think that it is because");
         assert_eq!(polish(&["I think so"]), "I think so.");
-        assert_eq!(polish(&["what are you looking for"]), "What are you looking for.");
+        assert_eq!(polish(&["I know what you are looking for"]), "I know what you are looking for.");
     }
 
     #[test]
@@ -285,6 +351,48 @@ mod tests {
         assert_eq!(casual("Are you coming?", &none), "are you coming?");
         assert_eq!(casual("I will be there.", &none), "I will be there");
         assert_eq!(casual("Wait... what.", &none), "wait... what");
+    }
+
+    #[test]
+    fn questions_get_a_question_mark() {
+        for q in [
+            "what time is it",
+            "How are you doing today",
+            "are you coming tonight",
+            "Where is the station",
+            "do you want a coffee",
+            "Does the printer work",
+            "how much does it cost",
+            "can you hear me",
+            "who is calling",
+            "What about Friday",
+            "we should leave soon, right",
+            "Didn't you say that yesterday",
+        ] {
+            let got = polish(&[q]);
+            assert!(got.ends_with('?'), "{q:?} -> {got:?}");
+        }
+        assert_eq!(polish(&["Hello there. what time is it. thanks"]), "Hello there. What time is it? Thanks.");
+    }
+
+    #[test]
+    fn statements_and_commands_keep_their_full_stop() {
+        for s in [
+            "what a lovely day",
+            "when I get home I will call you",
+            "I do not know",
+            "do not touch that",
+            "do the dishes",
+            "don't worry about it",
+            "have a nice day",
+            "where I grew up it rained a lot",
+            "how lovely",
+            "the answer is 3.5 apparently",
+            "I wonder what time it is",
+        ] {
+            let got = polish(&[s]);
+            assert!(got.ends_with('.'), "{s:?} -> {got:?}");
+        }
     }
 
     #[test]
