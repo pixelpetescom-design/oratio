@@ -17,62 +17,9 @@ fn is_win(k: &Keycode) -> bool {
     matches!(k, Keycode::LMeta | Keycode::RMeta)
 }
 
-/// The physical key behind each id in `oratio_core::hotkey::KEYS`.
-const KEY_TABLE: &[(&str, Keycode)] = &[
-    ("left_ctrl", Keycode::LControl),
-    ("right_ctrl", Keycode::RControl),
-    ("f1", Keycode::F1),
-    ("f2", Keycode::F2),
-    ("f3", Keycode::F3),
-    ("f4", Keycode::F4),
-    ("f5", Keycode::F5),
-    ("f6", Keycode::F6),
-    ("f7", Keycode::F7),
-    ("f8", Keycode::F8),
-    ("f9", Keycode::F9),
-    ("f10", Keycode::F10),
-    ("f11", Keycode::F11),
-    ("f12", Keycode::F12),
-    ("f13", Keycode::F13),
-    ("f14", Keycode::F14),
-    ("f15", Keycode::F15),
-    ("f16", Keycode::F16),
-    ("f17", Keycode::F17),
-    ("f18", Keycode::F18),
-    ("f19", Keycode::F19),
-    ("f20", Keycode::F20),
-    ("insert", Keycode::Insert),
-    ("home", Keycode::Home),
-    ("end", Keycode::End),
-    ("page_up", Keycode::PageUp),
-    ("page_down", Keycode::PageDown),
-    ("numpad_0", Keycode::Numpad0),
-    ("numpad_1", Keycode::Numpad1),
-    ("numpad_2", Keycode::Numpad2),
-    ("numpad_3", Keycode::Numpad3),
-    ("numpad_4", Keycode::Numpad4),
-    ("numpad_5", Keycode::Numpad5),
-    ("numpad_6", Keycode::Numpad6),
-    ("numpad_7", Keycode::Numpad7),
-    ("numpad_8", Keycode::Numpad8),
-    ("numpad_9", Keycode::Numpad9),
-    ("numpad_add", Keycode::NumpadAdd),
-    ("numpad_subtract", Keycode::NumpadSubtract),
-    ("numpad_multiply", Keycode::NumpadMultiply),
-    ("numpad_divide", Keycode::NumpadDivide),
-    ("numpad_decimal", Keycode::NumpadDecimal),
-];
-
-/// The physical key behind a single-key trigger (None for the Ctrl+Win chord).
-fn key_of(trigger: Trigger) -> Option<Keycode> {
-    match trigger {
-        Trigger::CtrlWin => None,
-        Trigger::Key(id) => KEY_TABLE.iter().find(|(key, _)| *key == id).map(|(_, code)| *code),
-    }
-}
-
-/// Waits for the user to press one key on its own and returns it as a trigger, so they can choose "any key"
-/// by pressing it. Fails if the key is not allowed, if Escape is pressed, or if nothing is pressed in time.
+/// Waits for the user to press the keys they want (one key or several held together) and returns them as a
+/// trigger. The keys are recorded until all of them are let go again. Fails if the combination can't be used,
+/// if Escape is pressed, or if nothing is pressed in time.
 pub fn capture_trigger(timeout: Duration) -> Result<Trigger, String> {
     let keyboard = DeviceState::new();
     let deadline = Instant::now() + timeout;
@@ -80,21 +27,35 @@ pub fn capture_trigger(timeout: Duration) -> Result<Trigger, String> {
     while Instant::now() < deadline && !keyboard.get_keys().is_empty() {
         std::thread::sleep(POLL);
     }
+    let mut chosen: Vec<Keycode> = Vec::new();
     while Instant::now() < deadline {
         let keys = keyboard.get_keys();
         if keys.contains(&Keycode::Escape) {
             return Err("Cancelled.".into());
         }
-        if let Some(first) = keys.first() {
-            return KEY_TABLE
-                .iter()
-                .find(|(_, code)| code == first)
-                .and_then(|(id, _)| Trigger::parse(id))
-                .ok_or_else(|| "That key can’t be used, as it would get in the way of typing. Try an F key, Insert, Home, End, Page Up/Down, a numpad key or Ctrl.".to_string());
+        if keys.is_empty() && !chosen.is_empty() {
+            let names: Vec<String> = chosen.iter().map(|k| format!("{k:?}")).collect();
+            return Trigger::from_keys(&names);
+        }
+        // The combination is the most keys that were down at once.
+        if keys.len() >= chosen.len() {
+            chosen = keys;
         }
         std::thread::sleep(POLL);
     }
     Err("No key was pressed.".into())
+}
+
+/// The physical keys of a custom trigger (None for the Ctrl+Win chord). A name this keyboard layer doesn't
+/// know yields an empty list, which never counts as held.
+fn codes_of(trigger: &Trigger) -> Option<Vec<Keycode>> {
+    match trigger {
+        Trigger::CtrlWin => None,
+        Trigger::Keys(names) => {
+            let codes: Vec<Keycode> = names.iter().filter_map(|n| n.parse().ok()).collect();
+            Some(if codes.len() == names.len() { codes } else { Vec::new() })
+        }
+    }
 }
 
 fn is_search_key(k: &Keycode, key: SearchKey) -> bool {
@@ -122,25 +83,28 @@ pub fn spawn(
             let clock = Instant::now();
             let mut active = trigger();
             let mut detector = ChordDetector::new(active.hold_ms());
+            let mut codes = codes_of(&active);
             loop {
                 std::thread::sleep(POLL);
                 let wanted = trigger();
                 if wanted != active {
-                    (active, detector) = (wanted, ChordDetector::new(wanted.hold_ms()));
+                    detector = ChordDetector::new(wanted.hold_ms());
+                    codes = codes_of(&wanted);
+                    active = wanted;
                 }
                 let keys = keyboard.get_keys();
                 let search = search_key();
                 let searching = search.is_some_and(|key| keys.iter().any(|k| is_search_key(k, key)));
                 // The search key is allowed alongside the trigger; any other key still cancels it.
                 let extra = |k: &Keycode| search.is_some_and(|key| is_search_key(k, key));
-                let (held, other) = match key_of(active) {
+                let (held, other) = match &codes {
                     None => (keys.iter().any(is_ctrl) && keys.iter().any(is_win), keys.iter().any(|k| !is_ctrl(k) && !is_win(k) && !extra(k))),
-                    Some(only) => (keys.contains(&only), keys.iter().any(|k| *k != only && !extra(k))),
+                    Some(wanted) => (!wanted.is_empty() && wanted.iter().all(|k| keys.contains(k)), keys.iter().any(|k| !wanted.contains(k) && !extra(k))),
                 };
                 match detector.update(clock.elapsed().as_millis() as u64, held, other) {
                     Some(ChordEvent::Pressed) => {
                         // Only Ctrl+Win opens the Start menu on release; single keys have nothing to suppress.
-                        if on_chord(searching) && active == Trigger::CtrlWin {
+                        if on_chord(searching) && matches!(active, Trigger::CtrlWin) {
                             suppress_start_menu();
                         }
                     }
@@ -200,10 +164,12 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn every_allowed_trigger_has_a_physical_key() {
-        for (id, _, _) in oratio_core::hotkey::KEYS {
-            assert!(key_of(Trigger::parse(id).unwrap()).is_some(), "{id} has no key code");
+    fn every_name_a_trigger_can_hold_is_a_real_key() {
+        let t = Trigger::parse("keys:LControl+LAlt+PageDown").unwrap();
+        assert_eq!(codes_of(&t), Some(vec![Keycode::LAlt, Keycode::LControl, Keycode::PageDown]));
+        assert_eq!(codes_of(&Trigger::CtrlWin), None);
+        for (_, names) in oratio_core::hotkey::PRESETS {
+            assert!(names.iter().all(|n| n.parse::<Keycode>().is_ok()), "{names:?}");
         }
-        assert_eq!(KEY_TABLE.len(), oratio_core::hotkey::KEYS.len());
     }
 }

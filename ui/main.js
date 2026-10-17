@@ -417,12 +417,15 @@ function showTrigger(id, label) {
   $("hotkey").textContent = label;
 }
 async function applyTrigger() {
+  let chosen;
   try {
-    showTrigger(trigger, await invoke("set_trigger", { id: trigger }));
+    chosen = await invoke("set_trigger", { id: trigger });
   } catch {
-    trigger = "ctrl_win"; // a saved key this version no longer allows
-    showTrigger(trigger, await invoke("set_trigger", { id: trigger }));
+    chosen = await invoke("set_trigger", { id: "ctrl_win" }); // a saved key this version no longer allows
   }
+  trigger = chosen.id;
+  localStorage.setItem("trigger", trigger);
+  showTrigger(chosen.id, chosen.label);
 }
 $("trigger").onchange = async () => {
   trigger = $("trigger").value;
@@ -433,7 +436,7 @@ $("trigger").onchange = async () => {
 $("pickKey").onclick = async () => {
   const button = $("pickKey");
   button.disabled = true;
-  button.textContent = "Press a key…";
+  button.textContent = "Press the keys…";
   try {
     const picked = await invoke("capture_trigger");
     trigger = picked.id;
@@ -444,7 +447,7 @@ $("pickKey").onclick = async () => {
     toast(String(e), "bad");
   }
   button.disabled = false;
-  button.textContent = "Choose a key…";
+  button.textContent = "Choose keys…";
 };
 applyTrigger();
 

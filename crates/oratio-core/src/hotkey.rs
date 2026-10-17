@@ -19,99 +19,106 @@ enum Phase {
     Spent,
 }
 
-/// Keys that may be the dictation trigger: (id, label, how long it must be held). Keys you type with
-/// (letters, digits, Space, Enter, arrows…) are deliberately missing, as are Alt (a lone tap focuses the
-/// window's menu bar), Shift and Win. The Fn key is not here either: on nearly every keyboard it is handled
-/// inside the keyboard and Windows never sees it.
-pub const KEYS: &[(&str, &str, Millis)] = &[
-    ("left_ctrl", "Left Ctrl", 200),
-    ("right_ctrl", "Right Ctrl", 200),
-    ("f1", "F1", 30),
-    ("f2", "F2", 30),
-    ("f3", "F3", 30),
-    ("f4", "F4", 30),
-    ("f5", "F5", 30),
-    ("f6", "F6", 30),
-    ("f7", "F7", 30),
-    ("f8", "F8", 30),
-    ("f9", "F9", 30),
-    ("f10", "F10", 30),
-    ("f11", "F11", 30),
-    ("f12", "F12", 30),
-    ("f13", "F13", 30),
-    ("f14", "F14", 30),
-    ("f15", "F15", 30),
-    ("f16", "F16", 30),
-    ("f17", "F17", 30),
-    ("f18", "F18", 30),
-    ("f19", "F19", 30),
-    ("f20", "F20", 30),
-    ("insert", "Insert", 30),
-    ("home", "Home", 30),
-    ("end", "End", 30),
-    ("page_up", "Page Up", 30),
-    ("page_down", "Page Down", 30),
-    ("numpad_0", "Numpad 0", 30),
-    ("numpad_1", "Numpad 1", 30),
-    ("numpad_2", "Numpad 2", 30),
-    ("numpad_3", "Numpad 3", 30),
-    ("numpad_4", "Numpad 4", 30),
-    ("numpad_5", "Numpad 5", 30),
-    ("numpad_6", "Numpad 6", 30),
-    ("numpad_7", "Numpad 7", 30),
-    ("numpad_8", "Numpad 8", 30),
-    ("numpad_9", "Numpad 9", 30),
-    ("numpad_add", "Numpad +", 30),
-    ("numpad_subtract", "Numpad -", 30),
-    ("numpad_multiply", "Numpad *", 30),
-    ("numpad_divide", "Numpad /", 30),
-    ("numpad_decimal", "Numpad .", 30),
-];
+/// Key names are the ones the keyboard adapter reports ("LControl", "F13", "PageUp", "A"…).
+const MODIFIERS: &[&str] = &["LControl", "RControl", "LAlt", "RAlt", "LShift", "RShift", "LMeta", "RMeta"];
 
-/// The key (or chord) that starts and stops dictation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Trigger {
-    CtrlWin,
-    /// One key from [`KEYS`], by id.
-    Key(&'static str),
+/// Keys that are fine to use on their own: they are not typed, and tapping them does nothing else.
+/// (A lone Alt, Shift or Win key is not here: a tap of those opens a menu or the Start menu.)
+fn is_safe_alone(name: &str) -> bool {
+    matches!(name, "LControl" | "RControl" | "Insert" | "Home" | "End" | "PageUp" | "PageDown")
+        || name.strip_prefix('F').is_some_and(|n| n.parse::<u8>().is_ok_and(|n| (1..=20).contains(&n)))
+        || name.starts_with("Numpad")
 }
 
-impl Default for Trigger {
-    fn default() -> Self {
-        Trigger::DEFAULT
+/// Common presets offered in the menu: (id, key names).
+pub const PRESETS: &[(&str, &[&str])] = &[("right_ctrl", &["RControl"]), ("f13", &["F13"]), ("f14", &["F14"]), ("f15", &["F15"]), ("f16", &["F16"])];
+
+const MAX_KEYS: usize = 4;
+
+/// What the user has to press to start and stop dictating.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Trigger {
+    /// Either Ctrl and either Win key together (the default).
+    #[default]
+    CtrlWin,
+    /// One key or several held together, by name.
+    Keys(Vec<String>),
+}
+
+fn friendly(name: &str) -> String {
+    match name {
+        "LControl" => "Left Ctrl".into(),
+        "RControl" => "Right Ctrl".into(),
+        "LAlt" => "Left Alt".into(),
+        "RAlt" => "Right Alt".into(),
+        "LShift" => "Left Shift".into(),
+        "RShift" => "Right Shift".into(),
+        "LMeta" => "Left Win".into(),
+        "RMeta" => "Right Win".into(),
+        "PageUp" => "Page Up".into(),
+        "PageDown" => "Page Down".into(),
+        "NumpadAdd" => "Numpad +".into(),
+        "NumpadSubtract" => "Numpad -".into(),
+        "NumpadMultiply" => "Numpad *".into(),
+        "NumpadDivide" => "Numpad /".into(),
+        "NumpadDecimal" => "Numpad .".into(),
+        "NumpadEnter" => "Numpad Enter".into(),
+        other => other.strip_prefix("Numpad").map_or_else(|| other.strip_prefix("Key").unwrap_or(other).to_string(), |n| format!("Numpad {n}")),
     }
 }
 
 impl Trigger {
     pub const DEFAULT: Trigger = Trigger::CtrlWin;
 
+    /// Builds a trigger from the keys that were pressed together, or says why they can't be used.
+    pub fn from_keys(names: &[String]) -> Result<Trigger, String> {
+        let mut keys: Vec<String> = names.to_vec();
+        keys.sort_by_key(|k| (!MODIFIERS.contains(&k.as_str()), k.clone()));
+        keys.dedup();
+        if keys.is_empty() || keys.len() > MAX_KEYS {
+            return Err(format!("Choose between one and {MAX_KEYS} keys."));
+        }
+        let ok = if keys.len() == 1 { is_safe_alone(&keys[0]) } else { keys.iter().any(|k| MODIFIERS.contains(&k.as_str()) || is_safe_alone(k)) };
+        if !ok {
+            return Err("That key on its own would get in the way of typing (or of Windows). Hold it together with Ctrl, Alt, Shift or Win, or pick an F key, Insert, Home, End, Page Up/Down, a numpad key or Ctrl.".into());
+        }
+        Ok(Trigger::Keys(keys))
+    }
+
+    /// Reads an id saved earlier: "ctrl_win", a preset, or "keys:LControl+LAlt+D".
     pub fn parse(id: &str) -> Option<Trigger> {
         if id == "ctrl_win" {
             return Some(Trigger::CtrlWin);
         }
-        KEYS.iter().find(|(key, _, _)| *key == id).map(|(key, _, _)| Trigger::Key(key))
+        if let Some((_, names)) = PRESETS.iter().find(|(preset, _)| *preset == id) {
+            return Trigger::from_keys(&names.iter().map(|n| n.to_string()).collect::<Vec<_>>()).ok();
+        }
+        let names: Vec<String> = id.strip_prefix("keys:")?.split('+').map(str::to_string).collect();
+        Trigger::from_keys(&names).ok()
     }
 
-    pub fn id(self) -> &'static str {
+    pub fn id(&self) -> String {
         match self {
-            Trigger::CtrlWin => "ctrl_win",
-            Trigger::Key(id) => id,
+            Trigger::CtrlWin => "ctrl_win".into(),
+            Trigger::Keys(keys) => format!("keys:{}", keys.join("+")),
         }
     }
 
-    pub fn label(self) -> &'static str {
+    pub fn label(&self) -> String {
         match self {
-            Trigger::CtrlWin => "Ctrl + Win",
-            Trigger::Key(id) => KEYS.iter().find(|(key, _, _)| *key == id).map_or("?", |(_, label, _)| label),
+            Trigger::CtrlWin => "Ctrl + Win".into(),
+            Trigger::Keys(keys) => keys.iter().map(|k| friendly(k)).collect::<Vec<_>>().join(" + "),
         }
     }
 
-    /// How long it must be held before it counts. A modifier is used in many shortcuts, so it waits longer
+    /// How long it must be held before it counts. A lone modifier is used in many shortcuts, so it waits longer
     /// to be sure it was pressed on its own.
-    pub fn hold_ms(self) -> Millis {
+    pub fn hold_ms(&self) -> Millis {
         match self {
             Trigger::CtrlWin => 80,
-            Trigger::Key(id) => KEYS.iter().find(|(key, _, _)| *key == id).map_or(80, |(_, _, hold)| *hold),
+            Trigger::Keys(keys) if keys.len() == 1 && MODIFIERS.contains(&keys[0].as_str()) => 200,
+            Trigger::Keys(keys) if keys.len() == 1 => 30,
+            Trigger::Keys(_) => 80,
         }
     }
 }
@@ -273,15 +280,30 @@ mod tests {
     }
 
     #[test]
-    fn triggers_round_trip_through_their_ids_and_reject_unknown_ones() {
-        for id in ["ctrl_win", "right_ctrl", "f13", "f20", "numpad_add", "page_down"] {
+    fn triggers_round_trip_and_unsafe_ones_are_refused() {
+        for id in ["ctrl_win", "keys:RControl", "keys:F13", "keys:LAlt+LControl+D", "keys:PageDown", "keys:NumpadAdd"] {
             assert_eq!(Trigger::parse(id).unwrap().id(), id);
         }
-        for id in ["fn", "f21", "a", "space", "right_alt", "left_shift", "left_win"] {
+        assert_eq!(Trigger::parse("right_ctrl"), Trigger::parse("keys:RControl"), "ids saved by earlier versions still work");
+        assert_eq!(Trigger::parse("f14").unwrap().label(), "F14");
+        for id in ["fn", "keys:F21", "keys:A", "keys:Space", "keys:LAlt", "keys:LShift", "keys:LMeta", "keys:A+B", "keys:", "keys:LControl+LAlt+LShift+LMeta+A"] {
             assert_eq!(Trigger::parse(id), None, "{id} must not be a trigger");
         }
-        assert_eq!(Trigger::parse("f14").unwrap().label(), "F14");
-        assert!(Trigger::parse("right_ctrl").unwrap().hold_ms() > Trigger::parse("f13").unwrap().hold_ms(), "modifiers wait longer");
+    }
+
+    #[test]
+    fn a_chord_is_labelled_in_plain_words_with_modifiers_first() {
+        let t = Trigger::from_keys(&["D".into(), "LAlt".into(), "LControl".into()]).unwrap();
+        assert_eq!(t.id(), "keys:LAlt+LControl+D");
+        assert_eq!(t.label(), "Left Alt + Left Ctrl + D");
+        assert_eq!(Trigger::parse("keys:PageUp").unwrap().label(), "Page Up");
+        assert_eq!(Trigger::parse("keys:Numpad7").unwrap().label(), "Numpad 7");
+    }
+
+    #[test]
+    fn a_lone_modifier_waits_longer_than_a_function_key() {
+        assert!(Trigger::parse("keys:RControl").unwrap().hold_ms() > Trigger::parse("keys:F13").unwrap().hold_ms());
+        assert_eq!(Trigger::CtrlWin.hold_ms(), 80);
     }
 
     #[test]

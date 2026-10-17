@@ -144,7 +144,7 @@ fn main() {
             // Start/stop is the Ctrl+Win chord, which has to be watched for rather than registered.
             let (watch_trigger, watch_key, on_chord, on_release, on_failure) = (ctl.clone(), ctl.clone(), ctl.clone(), ctl.clone(), ctl.clone());
             oratio_keys::spawn(
-                move || watch_trigger.shared.trigger.lock().map(|t| *t).unwrap_or_default(),
+                move || watch_trigger.shared.trigger.lock().map(|t| t.clone()).unwrap_or_default(),
                 move || {
                     watch_key.shared.search_enabled.load(Ordering::Relaxed).then(|| {
                         if watch_key.shared.search_key.load(Ordering::Relaxed) == 1 { SearchKey::Alt } else { SearchKey::Shift }

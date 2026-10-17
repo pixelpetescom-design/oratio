@@ -192,3 +192,6 @@ select:focus, #snippetform input:focus, #snippetform textarea:focus, #ruleform i
 .field-row select { flex: none; max-width: 130px; }
 
 .field-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+
+/* One scroll bar only: the content area scrolls, never the page behind it. */
+html, body { height: 100%; overflow: hidden; }

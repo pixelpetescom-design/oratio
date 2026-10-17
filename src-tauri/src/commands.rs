@@ -40,7 +40,7 @@ pub struct EntryView {
 pub fn get_snapshot(ctl: State<'_, Handle>) -> Snapshot {
     Snapshot {
         state: ctl.shared.state.lock().map(|s| *s).unwrap_or(Phase::Unavailable),
-        hotkey: ctl.shared.trigger.lock().map(|t| t.label().to_string()).unwrap_or_default(),
+        hotkey: ctl.shared.trigger.lock().map(|t| t.label()).unwrap_or_default(),
         problems: ctl.shared.problems.lock().map(|p| p.clone()).unwrap_or_default(),
         auto_paste: ctl.shared.auto_paste.load(Ordering::Relaxed),
         meeting: Some(ctl.shared.meeting_id.load(Ordering::Relaxed)).filter(|id| *id != 0),
@@ -80,28 +80,34 @@ pub fn set_behaviour(ctl: State<'_, Handle>, spoken_commands: bool, hold_to_talk
 
 #[derive(Serialize)]
 pub struct TriggerView {
-    id: &'static str,
-    label: &'static str,
+    id: String,
+    label: String,
 }
 
-/// "Press the key you want": waits for one key and makes it the dictation key.
+fn view_of(trigger: &oratio_core::hotkey::Trigger) -> TriggerView {
+    TriggerView { id: trigger.id(), label: trigger.label() }
+}
+
+/// "Press the keys you want": waits for one key, or several held together, and makes them the dictation key.
 #[tauri::command]
 pub async fn capture_trigger(ctl: State<'_, Handle>) -> Result<TriggerView, String> {
-    let trigger = tauri::async_runtime::spawn_blocking(|| oratio_keys::capture_trigger(std::time::Duration::from_secs(8))).await.map_err(|e| e.to_string())??;
+    let trigger = tauri::async_runtime::spawn_blocking(|| oratio_keys::capture_trigger(std::time::Duration::from_secs(10))).await.map_err(|e| e.to_string())??;
+    let view = view_of(&trigger);
     if let Ok(mut t) = ctl.shared.trigger.lock() {
         *t = trigger;
     }
-    Ok(TriggerView { id: trigger.id(), label: trigger.label() })
+    Ok(view)
 }
 
-/// Picks the key that starts and stops dictation ("ctrl_win", "right_ctrl", "f13"…). Returns its label.
+/// Picks the key that starts and stops dictation, from an id saved earlier. Returns the id and label in use.
 #[tauri::command]
-pub fn set_trigger(ctl: State<'_, Handle>, id: String) -> Result<String, String> {
+pub fn set_trigger(ctl: State<'_, Handle>, id: String) -> Result<TriggerView, String> {
     let trigger = oratio_core::hotkey::Trigger::parse(&id).ok_or("unknown key")?;
+    let view = view_of(&trigger);
     if let Ok(mut t) = ctl.shared.trigger.lock() {
         *t = trigger;
     }
-    Ok(trigger.label().to_string())
+    Ok(view)
 }
 
 #[tauri::command]
