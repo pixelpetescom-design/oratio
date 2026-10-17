@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::window::{Color, Effect, EffectsBuilder};
 use tauri::{AppHandle, Emitter, Manager, State};
-use oratio_core::models::{describe, offered, RemoteFile};
+use oratio_core::models::{describe, offered, RemoteFile, PARAKEET_APPROX_MB, PARAKEET_DIR, PARAKEET_FILES, PARAKEET_NAME};
 use oratio_core::overlay::{Position, Preset};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -365,6 +365,20 @@ pub struct ModelView {
 }
 
 fn view(file: &str, size: u64, installed: bool, bundled: bool, active: &str, is_new: bool) -> ModelView {
+    if file == PARAKEET_DIR {
+        return ModelView {
+            file: file.to_string(),
+            name: PARAKEET_NAME.to_string(),
+            quant: "int8".into(),
+            english_only: true,
+            size_mb: if size > 0 { size / 1_000_000 } else { PARAKEET_APPROX_MB },
+            installed,
+            active: file == active,
+            bundled,
+            is_new: false,
+            recommended: false,
+        };
+    }
     let info = describe(&RemoteFile { path: file.to_string(), size, sha256: None });
     ModelView {
         file: file.to_string(),
@@ -388,7 +402,12 @@ fn active_file(app: &AppHandle) -> String {
 #[tauri::command]
 pub fn list_models(app: AppHandle) -> Vec<ModelView> {
     let active = active_file(&app);
-    crate::model_files::installed(&app).into_iter().map(|m| view(&m.file, m.size, true, m.bundled, &active, false)).collect()
+    let mut models: Vec<ModelView> = crate::model_files::installed(&app).into_iter().map(|m| view(&m.file, m.size, true, m.bundled, &active, false)).collect();
+    // Parakeet is always on offer, so it can be downloaded without checking for updates first.
+    if !models.iter().any(|m| m.file == PARAKEET_DIR) {
+        models.push(view(PARAKEET_DIR, 0, false, false, &active, false));
+    }
+    models
 }
 
 /// Asks the public model host what is available. This is the only time Oratio goes online, and only
@@ -414,6 +433,11 @@ pub async fn check_model_updates(app: AppHandle, ctl: State<'_, Handle>) -> Resu
         })
         .collect();
     crate::model_files::remember_seen(&app, &names);
+    let mut views: Vec<ModelView> = views;
+    if !views.iter().any(|m| m.file == PARAKEET_DIR) {
+        let have = installed.iter().find(|i| i.file == PARAKEET_DIR);
+        views.push(view(PARAKEET_DIR, have.map_or(0, |i| i.size), have.is_some(), false, &active, false));
+    }
     if let Ok(mut r) = ctl.shared.remote_models.lock() {
         *r = files;
     }
@@ -431,6 +455,9 @@ struct Progress {
 /// result as "model-downloaded" / "problem".
 #[tauri::command]
 pub fn download_model(app: AppHandle, ctl: State<'_, Handle>, file: String) -> Result<(), String> {
+    if file == PARAKEET_DIR {
+        return download_parakeet(app, ctl);
+    }
     let remote = ctl
         .shared
         .remote_models
@@ -465,6 +492,55 @@ pub fn download_model(app: AppHandle, ctl: State<'_, Handle>, file: String) -> R
     Ok(())
 }
 
+/// Downloads the Parakeet files into a temporary folder, checks each against its published checksum, and only
+/// then moves the folder into place, so a half-finished download never looks like an installed model.
+fn download_parakeet(app: AppHandle, ctl: State<'_, Handle>) -> Result<(), String> {
+    let dir = crate::model_files::models_dir(&app).ok_or("no data folder")?;
+    if ctl.shared.model_busy.swap(true, Ordering::Relaxed) {
+        return Err("a download is already running".into());
+    }
+    ctl.shared.model_cancel.store(false, Ordering::Relaxed);
+    let shared = ctl.shared.clone();
+    std::thread::spawn(move || {
+        let hub = oratio_models::Hub::parakeet();
+        let result = (|| -> Result<(), oratio_core::CoreError> {
+            let listing = oratio_models::list(&hub)?;
+            let wanted: Vec<RemoteFile> = PARAKEET_FILES
+                .iter()
+                .map(|name| listing.iter().find(|f| f.path == *name).cloned().ok_or_else(|| oratio_core::CoreError::Network(format!("{name} is no longer offered by the model host"))))
+                .collect::<Result<_, _>>()?;
+            let total: u64 = wanted.iter().map(|f| f.size).sum();
+            let staging = dir.join(format!("{PARAKEET_DIR}.part"));
+            let _ = std::fs::remove_dir_all(&staging);
+            let mut finished = 0u64;
+            for file in &wanted {
+                let base = finished;
+                let outcome = oratio_models::download(&hub, file, &staging, &shared.model_cancel, |done, _| {
+                    let _ = app.emit("model-progress", Progress { file: PARAKEET_DIR.to_string(), done: base + done, total });
+                });
+                if let Err(e) = outcome {
+                    let _ = std::fs::remove_dir_all(&staging);
+                    return Err(e);
+                }
+                finished += file.size;
+            }
+            let _ = std::fs::remove_dir_all(dir.join(PARAKEET_DIR));
+            std::fs::rename(&staging, dir.join(PARAKEET_DIR)).map_err(|e| oratio_core::CoreError::Network(e.to_string()))
+        })();
+        shared.model_busy.store(false, Ordering::Relaxed);
+        match result {
+            Ok(()) => {
+                let _ = app.emit("model-downloaded", PARAKEET_DIR.to_string());
+            }
+            Err(e) => {
+                let cancelled = e.to_string().contains("cancelled");
+                let _ = app.emit("model-download-failed", (PARAKEET_DIR.to_string(), cancelled, e.to_string()));
+            }
+        }
+    });
+    Ok(())
+}
+
 #[tauri::command]
 pub fn cancel_model_download(ctl: State<'_, Handle>) {
     ctl.shared.model_cancel.store(true, Ordering::Relaxed);
@@ -489,7 +565,7 @@ pub fn delete_model(app: AppHandle, file: String) -> Result<(), String> {
     if model.bundled {
         return Err("that model came with the installer".into());
     }
-    std::fs::remove_file(model.path).map_err(|e| e.to_string())
+    if model.path.is_dir() { std::fs::remove_dir_all(model.path) } else { std::fs::remove_file(model.path) }.map_err(|e| e.to_string())
 }
 
 // ---- meetings --------------------------------------------------------------------------------

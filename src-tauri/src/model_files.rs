@@ -4,6 +4,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use oratio_core::models::{PARAKEET_DIR, PARAKEET_FILES};
 use tauri::{AppHandle, Manager};
 
 const ACTIVE_FILE: &str = "active-model.txt";
@@ -29,12 +30,22 @@ fn bundled_dir(app: &AppHandle) -> Option<PathBuf> {
     app.path().resource_dir().ok().map(|d| d.join("models"))
 }
 
-/// File names that are safe to treat as a model in our folders.
+/// Names that are safe to treat as a model in our folders: a Whisper `.bin` file or the Parakeet folder.
 pub fn is_plain_name(name: &str) -> bool {
-    !name.is_empty() && name.ends_with(".bin") && !name.contains(['/', '\\', ':']) && !name.contains("..")
+    (name.ends_with(".bin") || name == PARAKEET_DIR) && !name.contains(['/', '\\', ':']) && !name.contains("..")
+}
+
+/// The Parakeet folder, if every file it needs is in it.
+fn parakeet_in(dir: &Path) -> Option<(PathBuf, u64)> {
+    let folder = dir.join(PARAKEET_DIR);
+    let sizes: Option<Vec<u64>> = PARAKEET_FILES.iter().map(|f| fs::metadata(folder.join(f)).ok().map(|m| m.len())).collect();
+    sizes.map(|s| (folder, s.iter().sum()))
 }
 
 fn scan(dir: &Path, bundled: bool, out: &mut Vec<Installed>) {
+    if let Some((path, size)) = parakeet_in(dir) {
+        out.push(Installed { file: PARAKEET_DIR.to_string(), size, bundled, path });
+    }
     let Ok(entries) = fs::read_dir(dir) else { return };
     for e in entries.flatten() {
         let path = e.path();

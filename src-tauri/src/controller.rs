@@ -366,9 +366,7 @@ impl Controller {
             return;
         }
         self.apply(Input::EngineLoading);
-        self.engine.send(Command::SwapModel(Box::new(move || {
-            Ok(Box::new(oratio_stt::WhisperTranscriber::load(&path)?) as Box<dyn oratio_core::stt::Transcriber>)
-        })));
+        self.engine.send(Command::SwapModel(Box::new(move || crate::paths::load_transcriber(&path))));
     }
 
     fn arm_timer(&self, deadline: u64) {

@@ -17,6 +17,7 @@ oratio-paste = { path = "../crates/oratio-paste" }
 oratio-keys = { path = "../crates/oratio-keys" }
 oratio-window = { path = "../crates/oratio-window" }
 oratio-models = { path = "../crates/oratio-models" }
+oratio-parakeet = { path = "../crates/oratio-parakeet", optional = true }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
@@ -28,6 +29,8 @@ serde = { version = "1", features = ["derive"] }
 [features]
 # GPU-accelerated speech recognition; build with `cargo tauri build --features gpu`.
 gpu = ["oratio-stt/vulkan"]
+# NVIDIA Parakeet as a second kind of speech model (downloads ONNX Runtime while building).
+parakeet = ["dep:oratio-parakeet"]
 
 [lints]
 workspace = true

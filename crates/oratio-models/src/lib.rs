@@ -30,6 +30,16 @@ impl Hub {
     }
 }
 
+impl Hub {
+    /// The public repository holding the Parakeet files.
+    pub fn parakeet() -> Hub {
+        Hub {
+            listing: format!("https://huggingface.co/api/models/{}/tree/main", oratio_core::models::PARAKEET_REPO),
+            files: format!("https://huggingface.co/{}/resolve/main", oratio_core::models::PARAKEET_REPO),
+        }
+    }
+}
+
 fn net_err(e: impl std::fmt::Display) -> CoreError {
     CoreError::Network(e.to_string())
 }
@@ -62,7 +72,7 @@ pub fn list(hub: &Hub) -> Result<Vec<RemoteFile>, CoreError> {
 
 /// File names come from the network, so they must be plain model file names, never paths.
 fn is_plain_model_name(name: &str) -> bool {
-    !name.is_empty() && name.ends_with(".bin") && !name.contains(['/', '\\', ':']) && !name.contains("..")
+    !name.is_empty() && [".bin", ".onnx", ".txt"].iter().any(|ext| name.ends_with(ext)) && !name.contains(['/', '\\', ':']) && !name.contains("..")
 }
 
 /// Downloads `file` into `dest_dir`, reporting `(done, total)` bytes, and keeps it only if it matches

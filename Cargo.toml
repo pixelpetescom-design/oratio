@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["crates/oratio-core", "crates/oratio-audio", "crates/oratio-stt", "crates/oratio-store", "crates/oratio-paste", "crates/oratio-keys", "crates/oratio-window", "crates/oratio-models", "src-tauri"]
+members = ["crates/oratio-core", "crates/oratio-audio", "crates/oratio-stt", "crates/oratio-store", "crates/oratio-paste", "crates/oratio-keys", "crates/oratio-window", "crates/oratio-models", "crates/oratio-parakeet", "src-tauri"]
+# The Parakeet adapter downloads ONNX Runtime while building, so it is only compiled when asked for.
+default-members = ["crates/oratio-core", "crates/oratio-audio", "crates/oratio-stt", "crates/oratio-store", "crates/oratio-paste", "crates/oratio-keys", "crates/oratio-window", "crates/oratio-models", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

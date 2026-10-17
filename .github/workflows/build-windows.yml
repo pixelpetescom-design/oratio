@@ -55,7 +55,7 @@ jobs:
           # with this off it targets AVX2/FMA, which every PC from the last decade has.
           GGML_NATIVE: "OFF"
         run: |
-          if ($env:GPU -eq "true") { cargo tauri build --features gpu } else { cargo tauri build }
+          if ($env:GPU -eq "true") { cargo tauri build --features gpu,parakeet } else { cargo tauri build --features parakeet }
 
       - name: Upload installer
         uses: actions/upload-artifact@v4

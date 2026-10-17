@@ -2,6 +2,16 @@
 //! person can choose from ("Large v3 Turbo · q5_0 · 574 MB"). Pure parsing; the network lives in
 //! `oratio-models`.
 
+/// NVIDIA Parakeet is not one file but a folder of three, listed here because the rest of the app treats it as
+/// "a model you can download, switch to and delete" just like the Whisper ones.
+pub const PARAKEET_DIR: &str = "parakeet-tdt-0.6b-v2-int8";
+pub const PARAKEET_NAME: &str = "NVIDIA Parakeet TDT 0.6B v2";
+/// The public repository the files come from, and the ones needed from it (int8: smaller and quick on a normal CPU).
+pub const PARAKEET_REPO: &str = "istupakov/parakeet-tdt-0.6b-v2-onnx";
+pub const PARAKEET_FILES: &[&str] = &["encoder-model.int8.onnx", "decoder_joint-model.int8.onnx", "vocab.txt"];
+/// About how big the download is, shown before the exact sizes are known.
+pub const PARAKEET_APPROX_MB: u64 = 670;
+
 /// A file as listed by the model host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteFile {

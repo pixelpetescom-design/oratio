@@ -23,7 +23,6 @@ use oratio_core::meeting::Meetings;
 use oratio_core::session::{Input, State};
 use oratio_core::stt::Transcriber;
 use oratio_store::SqliteStore;
-use oratio_stt::WhisperTranscriber;
 
 fn main() {
     let result = tauri::Builder::default()
@@ -122,7 +121,7 @@ fn main() {
             let candidates = paths::model_candidates(&handle);
             let loader: Box<dyn FnOnce() -> Result<Box<dyn Transcriber>, oratio_core::CoreError> + Send> = Box::new(move || {
                 let model = paths::find_model(&candidates)?;
-                Ok(Box::new(WhisperTranscriber::load(&model)?))
+                paths::load_transcriber(&model)
             });
             let engine = Engine::spawn(loader, history, lexicon, etx);
             let ctl = controller::spawn(handle.clone(), engine, app_rules, meetings, erx);

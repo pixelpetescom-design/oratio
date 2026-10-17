@@ -1,6 +1,7 @@
 use crate::config::MODEL_FILE;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
+use oratio_core::stt::Transcriber;
 use oratio_core::CoreError;
 
 /// Everywhere the model may live, most specific first. The installer ships it in
@@ -29,8 +30,9 @@ fn candidates(app: &AppHandle) -> Vec<PathBuf> {
     v
 }
 
+/// A Whisper model is one file; a Parakeet model is a folder.
 pub fn find_model(paths: &[PathBuf]) -> Result<PathBuf, CoreError> {
-    paths.iter().find(|p| p.is_file()).cloned().ok_or_else(|| {
+    paths.iter().find(|p| p.is_file() || p.is_dir()).cloned().ok_or_else(|| {
         let searched = paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join("\n  ");
         CoreError::Stt(format!("Speech model {MODEL_FILE} not found. Run scripts/get-model, or place it in one of:\n  {searched}"))
     })
@@ -38,4 +40,15 @@ pub fn find_model(paths: &[PathBuf]) -> Result<PathBuf, CoreError> {
 
 pub fn model_candidates(app: &AppHandle) -> Vec<PathBuf> {
     candidates(app)
+}
+
+/// Loads whichever kind of speech model is at `path`.
+pub fn load_transcriber(path: &Path) -> Result<Box<dyn Transcriber>, CoreError> {
+    if path.is_dir() {
+        #[cfg(feature = "parakeet")]
+        return Ok(Box::new(oratio_parakeet::ParakeetTranscriber::load(path)?));
+        #[cfg(not(feature = "parakeet"))]
+        return Err(CoreError::Stt("This build of Oratio does not include Parakeet.".into()));
+    }
+    Ok(Box::new(oratio_stt::WhisperTranscriber::load(path)?))
 }

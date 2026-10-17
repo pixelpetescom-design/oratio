@@ -1,0 +1,18 @@
+[package]
+name = "oratio-parakeet"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+oratio-core = { path = "../oratio-core" }
+parakeet-rs = { version = "0.4", default-features = false, features = ["cpu", "api-28"] }
+
+[features]
+# Normal builds download a ready-made ONNX Runtime while compiling.
+default = ["parakeet-rs/ort-defaults"]
+# Compile-only check on a machine that cannot download it (the runtime would be loaded from a DLL instead).
+load-dynamic = ["parakeet-rs/load-dynamic"]
+
+[lints]
+workspace = true
