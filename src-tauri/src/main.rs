@@ -42,6 +42,7 @@ fn main() {
             commands::set_search,
             commands::set_behaviour,
             commands::set_trigger,
+            commands::capture_trigger,
             commands::list_models,
             commands::check_model_updates,
             commands::download_model,

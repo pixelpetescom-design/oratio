@@ -17,22 +17,84 @@ fn is_win(k: &Keycode) -> bool {
     matches!(k, Keycode::LMeta | Keycode::RMeta)
 }
 
+/// The physical key behind each id in `oratio_core::hotkey::KEYS`.
+const KEY_TABLE: &[(&str, Keycode)] = &[
+    ("left_ctrl", Keycode::LControl),
+    ("right_ctrl", Keycode::RControl),
+    ("f1", Keycode::F1),
+    ("f2", Keycode::F2),
+    ("f3", Keycode::F3),
+    ("f4", Keycode::F4),
+    ("f5", Keycode::F5),
+    ("f6", Keycode::F6),
+    ("f7", Keycode::F7),
+    ("f8", Keycode::F8),
+    ("f9", Keycode::F9),
+    ("f10", Keycode::F10),
+    ("f11", Keycode::F11),
+    ("f12", Keycode::F12),
+    ("f13", Keycode::F13),
+    ("f14", Keycode::F14),
+    ("f15", Keycode::F15),
+    ("f16", Keycode::F16),
+    ("f17", Keycode::F17),
+    ("f18", Keycode::F18),
+    ("f19", Keycode::F19),
+    ("f20", Keycode::F20),
+    ("insert", Keycode::Insert),
+    ("home", Keycode::Home),
+    ("end", Keycode::End),
+    ("page_up", Keycode::PageUp),
+    ("page_down", Keycode::PageDown),
+    ("numpad_0", Keycode::Numpad0),
+    ("numpad_1", Keycode::Numpad1),
+    ("numpad_2", Keycode::Numpad2),
+    ("numpad_3", Keycode::Numpad3),
+    ("numpad_4", Keycode::Numpad4),
+    ("numpad_5", Keycode::Numpad5),
+    ("numpad_6", Keycode::Numpad6),
+    ("numpad_7", Keycode::Numpad7),
+    ("numpad_8", Keycode::Numpad8),
+    ("numpad_9", Keycode::Numpad9),
+    ("numpad_add", Keycode::NumpadAdd),
+    ("numpad_subtract", Keycode::NumpadSubtract),
+    ("numpad_multiply", Keycode::NumpadMultiply),
+    ("numpad_divide", Keycode::NumpadDivide),
+    ("numpad_decimal", Keycode::NumpadDecimal),
+];
+
 /// The physical key behind a single-key trigger (None for the Ctrl+Win chord).
 fn key_of(trigger: Trigger) -> Option<Keycode> {
-    Some(match trigger {
-        Trigger::CtrlWin => return None,
-        Trigger::RightCtrl => Keycode::RControl,
-        Trigger::RightAlt => Keycode::RAlt,
-        Trigger::F(13) => Keycode::F13,
-        Trigger::F(14) => Keycode::F14,
-        Trigger::F(15) => Keycode::F15,
-        Trigger::F(16) => Keycode::F16,
-        Trigger::F(17) => Keycode::F17,
-        Trigger::F(18) => Keycode::F18,
-        Trigger::F(19) => Keycode::F19,
-        Trigger::F(20) => Keycode::F20,
-        Trigger::F(_) => return None,
-    })
+    match trigger {
+        Trigger::CtrlWin => None,
+        Trigger::Key(id) => KEY_TABLE.iter().find(|(key, _)| *key == id).map(|(_, code)| *code),
+    }
+}
+
+/// Waits for the user to press one key on its own and returns it as a trigger, so they can choose "any key"
+/// by pressing it. Fails if the key is not allowed, if Escape is pressed, or if nothing is pressed in time.
+pub fn capture_trigger(timeout: Duration) -> Result<Trigger, String> {
+    let keyboard = DeviceState::new();
+    let deadline = Instant::now() + timeout;
+    // Let go of whatever was held to click the button.
+    while Instant::now() < deadline && !keyboard.get_keys().is_empty() {
+        std::thread::sleep(POLL);
+    }
+    while Instant::now() < deadline {
+        let keys = keyboard.get_keys();
+        if keys.contains(&Keycode::Escape) {
+            return Err("Cancelled.".into());
+        }
+        if let Some(first) = keys.first() {
+            return KEY_TABLE
+                .iter()
+                .find(|(_, code)| code == first)
+                .and_then(|(id, _)| Trigger::parse(id))
+                .ok_or_else(|| "That key can’t be used, as it would get in the way of typing. Try an F key, Insert, Home, End, Page Up/Down, a numpad key or Ctrl.".to_string());
+        }
+        std::thread::sleep(POLL);
+    }
+    Err("No key was pressed.".into())
 }
 
 fn is_search_key(k: &Keycode, key: SearchKey) -> bool {
@@ -130,4 +192,18 @@ pub fn wait_for_modifiers_released(timeout: Duration) -> bool {
         std::thread::sleep(POLL);
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn every_allowed_trigger_has_a_physical_key() {
+        for (id, _, _) in oratio_core::hotkey::KEYS {
+            assert!(key_of(Trigger::parse(id).unwrap()).is_some(), "{id} has no key code");
+        }
+        assert_eq!(KEY_TABLE.len(), oratio_core::hotkey::KEYS.len());
+    }
 }

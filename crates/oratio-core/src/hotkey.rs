@@ -19,15 +19,61 @@ enum Phase {
     Spent,
 }
 
-/// The key (or chord) that starts and stops dictation. The Fn key is deliberately absent: on nearly
-/// every keyboard it is handled inside the keyboard and Windows never sees it.
+/// Keys that may be the dictation trigger: (id, label, how long it must be held). Keys you type with
+/// (letters, digits, Space, Enter, arrows…) are deliberately missing, as are Alt (a lone tap focuses the
+/// window's menu bar), Shift and Win. The Fn key is not here either: on nearly every keyboard it is handled
+/// inside the keyboard and Windows never sees it.
+pub const KEYS: &[(&str, &str, Millis)] = &[
+    ("left_ctrl", "Left Ctrl", 200),
+    ("right_ctrl", "Right Ctrl", 200),
+    ("f1", "F1", 30),
+    ("f2", "F2", 30),
+    ("f3", "F3", 30),
+    ("f4", "F4", 30),
+    ("f5", "F5", 30),
+    ("f6", "F6", 30),
+    ("f7", "F7", 30),
+    ("f8", "F8", 30),
+    ("f9", "F9", 30),
+    ("f10", "F10", 30),
+    ("f11", "F11", 30),
+    ("f12", "F12", 30),
+    ("f13", "F13", 30),
+    ("f14", "F14", 30),
+    ("f15", "F15", 30),
+    ("f16", "F16", 30),
+    ("f17", "F17", 30),
+    ("f18", "F18", 30),
+    ("f19", "F19", 30),
+    ("f20", "F20", 30),
+    ("insert", "Insert", 30),
+    ("home", "Home", 30),
+    ("end", "End", 30),
+    ("page_up", "Page Up", 30),
+    ("page_down", "Page Down", 30),
+    ("numpad_0", "Numpad 0", 30),
+    ("numpad_1", "Numpad 1", 30),
+    ("numpad_2", "Numpad 2", 30),
+    ("numpad_3", "Numpad 3", 30),
+    ("numpad_4", "Numpad 4", 30),
+    ("numpad_5", "Numpad 5", 30),
+    ("numpad_6", "Numpad 6", 30),
+    ("numpad_7", "Numpad 7", 30),
+    ("numpad_8", "Numpad 8", 30),
+    ("numpad_9", "Numpad 9", 30),
+    ("numpad_add", "Numpad +", 30),
+    ("numpad_subtract", "Numpad -", 30),
+    ("numpad_multiply", "Numpad *", 30),
+    ("numpad_divide", "Numpad /", 30),
+    ("numpad_decimal", "Numpad .", 30),
+];
+
+/// The key (or chord) that starts and stops dictation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trigger {
     CtrlWin,
-    RightCtrl,
-    RightAlt,
-    /// A function key from F13 to F20 (often a spare macro or remapped key).
-    F(u8),
+    /// One key from [`KEYS`], by id.
+    Key(&'static str),
 }
 
 impl Default for Trigger {
@@ -40,29 +86,23 @@ impl Trigger {
     pub const DEFAULT: Trigger = Trigger::CtrlWin;
 
     pub fn parse(id: &str) -> Option<Trigger> {
-        match id {
-            "ctrl_win" => Some(Trigger::CtrlWin),
-            "right_ctrl" => Some(Trigger::RightCtrl),
-            "right_alt" => Some(Trigger::RightAlt),
-            _ => id.strip_prefix('f').and_then(|n| n.parse::<u8>().ok()).filter(|n| (13..=20).contains(n)).map(Trigger::F),
+        if id == "ctrl_win" {
+            return Some(Trigger::CtrlWin);
+        }
+        KEYS.iter().find(|(key, _, _)| *key == id).map(|(key, _, _)| Trigger::Key(key))
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Trigger::CtrlWin => "ctrl_win",
+            Trigger::Key(id) => id,
         }
     }
 
-    pub fn id(self) -> String {
+    pub fn label(self) -> &'static str {
         match self {
-            Trigger::CtrlWin => "ctrl_win".into(),
-            Trigger::RightCtrl => "right_ctrl".into(),
-            Trigger::RightAlt => "right_alt".into(),
-            Trigger::F(n) => format!("f{n}"),
-        }
-    }
-
-    pub fn label(self) -> String {
-        match self {
-            Trigger::CtrlWin => "Ctrl + Win".into(),
-            Trigger::RightCtrl => "Right Ctrl".into(),
-            Trigger::RightAlt => "Right Alt".into(),
-            Trigger::F(n) => format!("F{n}"),
+            Trigger::CtrlWin => "Ctrl + Win",
+            Trigger::Key(id) => KEYS.iter().find(|(key, _, _)| *key == id).map_or("?", |(_, label, _)| label),
         }
     }
 
@@ -71,8 +111,7 @@ impl Trigger {
     pub fn hold_ms(self) -> Millis {
         match self {
             Trigger::CtrlWin => 80,
-            Trigger::RightCtrl | Trigger::RightAlt => 200,
-            Trigger::F(_) => 30,
+            Trigger::Key(id) => KEYS.iter().find(|(key, _, _)| *key == id).map_or(80, |(_, _, hold)| *hold),
         }
     }
 }
@@ -235,12 +274,14 @@ mod tests {
 
     #[test]
     fn triggers_round_trip_through_their_ids_and_reject_unknown_ones() {
-        for id in ["ctrl_win", "right_ctrl", "right_alt", "f13", "f20"] {
+        for id in ["ctrl_win", "right_ctrl", "f13", "f20", "numpad_add", "page_down"] {
             assert_eq!(Trigger::parse(id).unwrap().id(), id);
         }
-        assert_eq!(Trigger::parse("f12"), None, "F12 is used by ordinary apps");
-        assert_eq!(Trigger::parse("fn"), None);
-        assert_eq!(Trigger::F(14).label(), "F14");
+        for id in ["fn", "f21", "a", "space", "right_alt", "left_shift", "left_win"] {
+            assert_eq!(Trigger::parse(id), None, "{id} must not be a trigger");
+        }
+        assert_eq!(Trigger::parse("f14").unwrap().label(), "F14");
+        assert!(Trigger::parse("right_ctrl").unwrap().hold_ms() > Trigger::parse("f13").unwrap().hold_ms(), "modifiers wait longer");
     }
 
     #[test]

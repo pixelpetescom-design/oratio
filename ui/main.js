@@ -410,15 +410,41 @@ applySearch();
 
 // The key that starts and stops dictation.
 let trigger = localStorage.getItem("trigger") ?? "ctrl_win";
+function showTrigger(id, label) {
+  const select = $("trigger");
+  if (![...select.options].some((o) => o.value === id)) select.append(new Option(label, id));
+  select.value = id;
+  $("hotkey").textContent = label;
+}
 async function applyTrigger() {
-  $("trigger").value = trigger;
-  try { $("hotkey").textContent = await invoke("set_trigger", { id: trigger }); } catch { trigger = "ctrl_win"; $("trigger").value = trigger; await invoke("set_trigger", { id: trigger }); }
+  try {
+    showTrigger(trigger, await invoke("set_trigger", { id: trigger }));
+  } catch {
+    trigger = "ctrl_win"; // a saved key this version no longer allows
+    showTrigger(trigger, await invoke("set_trigger", { id: trigger }));
+  }
 }
 $("trigger").onchange = async () => {
   trigger = $("trigger").value;
   localStorage.setItem("trigger", trigger);
   await applyTrigger();
   toast(`Dictation key: ${$("hotkey").textContent}`);
+};
+$("pickKey").onclick = async () => {
+  const button = $("pickKey");
+  button.disabled = true;
+  button.textContent = "Press a key…";
+  try {
+    const picked = await invoke("capture_trigger");
+    trigger = picked.id;
+    localStorage.setItem("trigger", trigger);
+    showTrigger(picked.id, picked.label);
+    toast(`Dictation key: ${picked.label}`);
+  } catch (e) {
+    toast(String(e), "bad");
+  }
+  button.disabled = false;
+  button.textContent = "Choose a key…";
 };
 applyTrigger();
 
