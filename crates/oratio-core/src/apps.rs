@@ -11,6 +11,10 @@ pub enum AppAction {
     CopyOnly,
     /// Type it, then press Enter (chat boxes, search bars).
     EnterAfter,
+    /// Relaxed chat style: lower case, no closing full stop.
+    Casual,
+    /// Chat style, then press Enter.
+    CasualEnter,
 }
 
 impl AppAction {
@@ -18,6 +22,8 @@ impl AppAction {
         match id {
             "copy_only" => Some(AppAction::CopyOnly),
             "enter_after" => Some(AppAction::EnterAfter),
+            "casual" => Some(AppAction::Casual),
+            "casual_enter" => Some(AppAction::CasualEnter),
             _ => None,
         }
     }
@@ -26,7 +32,18 @@ impl AppAction {
         match self {
             AppAction::CopyOnly => "copy_only",
             AppAction::EnterAfter => "enter_after",
+            AppAction::Casual => "casual",
+            AppAction::CasualEnter => "casual_enter",
         }
+    }
+
+    /// Write the way people do in chat: no capital at the start, no closing full stop.
+    pub fn is_casual(self) -> bool {
+        matches!(self, AppAction::Casual | AppAction::CasualEnter)
+    }
+
+    pub fn presses_enter(self) -> bool {
+        matches!(self, AppAction::EnterAfter | AppAction::CasualEnter)
     }
 }
 
@@ -90,7 +107,7 @@ mod tests {
 
     #[test]
     fn action_ids_round_trip() {
-        for a in [AppAction::CopyOnly, AppAction::EnterAfter] {
+        for a in [AppAction::CopyOnly, AppAction::EnterAfter, AppAction::Casual, AppAction::CasualEnter] {
             assert_eq!(AppAction::parse(a.id()), Some(a));
         }
         assert_eq!(AppAction::parse("nope"), None);

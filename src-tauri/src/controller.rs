@@ -50,6 +50,8 @@ pub struct Shared {
     pub search_engine: Mutex<String>,
     /// Address template for the "custom" engine, with {q} for the query.
     pub search_custom: Mutex<String>,
+    /// The key or chord that starts and stops dictation.
+    pub trigger: Mutex<oratio_core::hotkey::Trigger>,
     /// Chosen microphone (None = system default).
     pub mic: Mutex<Option<String>>,
     /// Where the wave overlay appears.
@@ -133,6 +135,8 @@ struct Controller {
     stopped_at: Option<Instant>,
     /// When we last typed text into another app, to space consecutive dictations.
     last_paste: Option<Instant>,
+    /// What that text was, so the next dictation can carry on from it.
+    last_text: String,
 }
 
 /// Starts the controller thread. `engine_events` is the receiving end of the
@@ -147,6 +151,7 @@ pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, meeti
         hold_to_talk: AtomicBool::new(false),
         search_engine: Mutex::new("google".into()),
         search_custom: Mutex::new(String::new()),
+        trigger: Mutex::new(oratio_core::hotkey::Trigger::DEFAULT),
         mic: Mutex::new(None),
         overlay_pos: Mutex::new(oratio_core::overlay::Position::default()),
         overlay_moving: AtomicBool::new(false),
@@ -180,6 +185,7 @@ pub fn spawn(app: AppHandle, engine: Engine, app_rules: Arc<dyn AppRules>, meeti
         last_level: Instant::now(),
         stopped_at: None,
         last_paste: None,
+        last_text: String::new(),
     };
     let _ = std::thread::Builder::new().name("oratio-controller".into()).spawn(move || {
         for msg in rx {
@@ -220,7 +226,12 @@ impl Controller {
         match fx {
             Effect::StartRecording => {
                 let started_at_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
-                self.engine.send(Command::Begin { started_at_ms, spoken_commands: self.shared.spoken_commands.load(Ordering::Relaxed) });
+                // What the focused app wants (chat style) and what we last typed there, so the new words fit in.
+                let casual = oratio_window::active_app()
+                    .and_then(|focused| self.app_rules.rules().ok().and_then(|rules| action_for(&rules, &focused)))
+                    .is_some_and(AppAction::is_casual);
+                let previous = self.last_paste.filter(|t| t.elapsed() < Duration::from_millis(CONTINUATION_WINDOW_MS)).map(|_| self.last_text.clone());
+                self.engine.send(Command::Begin { started_at_ms, spoken_commands: self.shared.spoken_commands.load(Ordering::Relaxed), previous, casual });
                 let audio = self.engine.sender();
                 let mic = self.shared.mic.lock().ok().and_then(|m| m.clone());
                 match Capture::start(mic, move |chunk| {
@@ -415,7 +426,7 @@ impl Controller {
                     let auto_paste = self.shared.auto_paste.load(Ordering::Relaxed);
                     copy_only = auto_paste && rule == Some(AppAction::CopyOnly);
                     let type_it = auto_paste && !copy_only;
-                    let press_enter = enter || rule == Some(AppAction::EnterAfter);
+                    let press_enter = enter || rule.is_some_and(AppAction::presses_enter);
 
                     if !text.is_empty() {
                         // Clipboard first: the text is the product, everything else is bookkeeping.
@@ -445,6 +456,7 @@ impl Controller {
                                 pasted = copied;
                                 if copied {
                                     self.last_paste = Some(Instant::now());
+                                    self.last_text = text.clone();
                                 }
                                 if press_enter {
                                     if let Err(e) = oratio_paste::press_enter() {

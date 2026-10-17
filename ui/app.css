@@ -184,3 +184,9 @@ select:focus, #snippetform input:focus, #snippetform textarea:focus, #ruleform i
 .tline .at { color: var(--muted); font-size: 11px; }
 .tline.you b { color: var(--cyan); }
 .tline.others b { color: #b79bff; }
+
+/* A labelled dropdown row inside a settings card */
+.field-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; }
+.field-row .text { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.field-row .sub { color: var(--muted); font-size: 11px; line-height: 1.4; }
+.field-row select { flex: none; max-width: 130px; }

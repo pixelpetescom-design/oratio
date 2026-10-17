@@ -1,6 +1,6 @@
 //! UI-facing commands. Thin: they validate nothing the core doesn't, and hold no state.
 
-use crate::config::{HISTORY_LIMIT, TOGGLE_LABEL};
+use crate::config::HISTORY_LIMIT;
 use crate::controller::Handle;
 use serde::Serialize;
 use std::sync::atomic::Ordering;
@@ -20,7 +20,7 @@ use oratio_core::session::{Input, State as Phase};
 #[derive(Serialize)]
 pub struct Snapshot {
     state: Phase,
-    hotkey: &'static str,
+    hotkey: String,
     problems: Vec<String>,
     auto_paste: bool,
     /// The meeting being recorded, if any.
@@ -40,7 +40,7 @@ pub struct EntryView {
 pub fn get_snapshot(ctl: State<'_, Handle>) -> Snapshot {
     Snapshot {
         state: ctl.shared.state.lock().map(|s| *s).unwrap_or(Phase::Unavailable),
-        hotkey: TOGGLE_LABEL,
+        hotkey: ctl.shared.trigger.lock().map(|t| t.label()).unwrap_or_default(),
         problems: ctl.shared.problems.lock().map(|p| p.clone()).unwrap_or_default(),
         auto_paste: ctl.shared.auto_paste.load(Ordering::Relaxed),
         meeting: Some(ctl.shared.meeting_id.load(Ordering::Relaxed)).filter(|id| *id != 0),
@@ -75,6 +75,16 @@ pub fn set_search(ctl: State<'_, Handle>, enabled: bool, key: String, engine: St
 pub fn set_behaviour(ctl: State<'_, Handle>, spoken_commands: bool, hold_to_talk: bool) {
     ctl.shared.spoken_commands.store(spoken_commands, Ordering::Relaxed);
     ctl.shared.hold_to_talk.store(hold_to_talk, Ordering::Relaxed);
+}
+
+/// Picks the key that starts and stops dictation ("ctrl_win", "right_ctrl", "f13"…). Returns its label.
+#[tauri::command]
+pub fn set_trigger(ctl: State<'_, Handle>, id: String) -> Result<String, String> {
+    let trigger = oratio_core::hotkey::Trigger::parse(&id).ok_or("unknown key")?;
+    if let Ok(mut t) = ctl.shared.trigger.lock() {
+        *t = trigger;
+    }
+    Ok(trigger.label())
 }
 
 #[tauri::command]

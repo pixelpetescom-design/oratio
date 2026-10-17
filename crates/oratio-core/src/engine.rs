@@ -9,9 +9,10 @@
 use crate::history::{History, RecordingId};
 use crate::lexicon::{Fix, Lexicon};
 use crate::meeting::Source;
+use crate::backtrack;
 use crate::commands;
 use crate::numbers;
-use crate::polish::{collapse_repeats, polish, LOOP_RUN};
+use crate::polish::{casual, collapse_repeats, follow_on, polish, LOOP_RUN};
 use crate::vocab::apply_fixes;
 use crate::spelling::to_australian;
 use crate::segmenter::{normalize, rms, Segmenter, SegmenterConfig, SAMPLE_RATE};
@@ -23,7 +24,14 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 pub enum Command {
-    Begin { started_at_ms: i64, spoken_commands: bool },
+    Begin {
+        started_at_ms: i64,
+        spoken_commands: bool,
+        /// What was typed just before, so the new text can carry on from it (lower case after no full stop).
+        previous: Option<String>,
+        /// Chat style: lower case, no closing full stop.
+        casual: bool,
+    },
     /// 16 kHz mono f32.
     Audio(Vec<f32>),
     Finish,
@@ -111,6 +119,8 @@ struct Take {
     /// Spoken trigger → text, expanded after everything else.
     snippets: Vec<Fix>,
     spoken_commands: bool,
+    previous: Option<String>,
+    casual: bool,
 }
 
 fn recognise(transcriber: &mut dyn Transcriber, history: &dyn History, take: &mut Take, mut audio: Vec<f32>, segmenter_events: &dyn Fn(Event)) {
@@ -202,7 +212,7 @@ fn run(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, rx: R
 
     while let Ok(cmd) = rx.recv() {
         match cmd {
-            Command::Begin { started_at_ms, spoken_commands } => {
+            Command::Begin { started_at_ms, spoken_commands, previous, casual } => {
                 segmenter = Segmenter::new(SegmenterConfig::default());
                 if let Some(old) = take.take() {
                     let _ = history.fail(old.id, "superseded by a new recording");
@@ -222,7 +232,7 @@ fn run(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, rx: R
                 });
                 transcriber.set_hints(&words);
                 match history.begin(started_at_ms) {
-                    Ok(id) => take = Some(Take { id, texts: vec![], last_error: None, max_level: 0.0, fixes, words: words.clone(), snippets, spoken_commands }),
+                    Ok(id) => take = Some(Take { id, texts: vec![], last_error: None, max_level: 0.0, fixes, words: words.clone(), snippets, spoken_commands, previous, casual }),
                     Err(e) => emit(Event::Failed { reason: e.to_string() }),
                 }
             }
@@ -260,14 +270,22 @@ fn run(load: Loader, history: Arc<dyn History>, lexicon: Arc<dyn Lexicon>, rx: R
                 }
                 // Spelling first, so the user's own corrections always have the final word; spoken commands
                 // and snippets come last so nothing earlier can disturb the line breaks they create.
-                let text = numbers::format(&apply_fixes(&to_australian(&polish(&t.texts), &t.words), &t.fixes));
+                let said = backtrack::apply(&t.texts.join(" "));
+                let text = numbers::format(&apply_fixes(&to_australian(&polish(&[said]), &t.words), &t.fixes));
                 let parsed = if t.spoken_commands { commands::apply(&text) } else { commands::Parsed { text, ..Default::default() } };
                 if parsed.scratch {
                     let _ = history.delete(t.id);
                     emit(Event::Scratched);
                     continue;
                 }
-                let text = apply_fixes(&parsed.text, &t.snippets);
+                // Fit it to the surroundings: chat apps get a relaxed style, and a dictation that continues
+                // the previous one carries on in lower case when that one stopped mid-sentence.
+                let styled = match &t.previous {
+                    _ if t.casual => casual(&parsed.text, &t.words),
+                    Some(previous) => follow_on(previous, &parsed.text, &t.words),
+                    None => parsed.text.clone(),
+                };
+                let text = apply_fixes(&styled, &t.snippets);
                 if text.is_empty() {
                     // Nothing but a command (e.g. just "press enter"): no history entry.
                     let _ = history.delete(t.id);
@@ -395,7 +413,7 @@ mod tests {
     fn transcribes_while_speaking_then_flushes_the_tail() {
         let hist = Arc::new(MemHistory::default());
         let (eng, rx) = start(vec![Ok("hello there"), Ok("how are you")], hist.clone());
-        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true });
+        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true, previous: None, casual: false });
         eng.send(Command::Audio([tone(800), vec![0.0; 16 * 900]].concat()));
         eng.send(Command::Audio(tone(400))); // still talking when stop is pressed
         eng.send(Command::Finish);
@@ -411,7 +429,7 @@ mod tests {
     fn silence_yields_empty_result_and_no_history_row() {
         let hist = Arc::new(MemHistory::default());
         let (eng, rx) = start(vec![], hist.clone());
-        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true });
+        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true, previous: None, casual: false });
         eng.send(Command::Audio(vec![0.0; 16_000]));
         eng.send(Command::Finish);
         assert_eq!(until_finished(&rx).1, Event::Finished { id: None, text: String::new(), enter: false });
@@ -422,7 +440,7 @@ mod tests {
     fn discard_deletes_the_recording() {
         let hist = Arc::new(MemHistory::default());
         let (eng, rx) = start(vec![Ok("x")], hist.clone());
-        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true });
+        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true, previous: None, casual: false });
         eng.send(Command::Audio([tone(800), vec![0.0; 16 * 900]].concat()));
         eng.send(Command::Discard);
         assert_eq!(until_finished(&rx).1, Event::Discarded);
@@ -433,7 +451,7 @@ mod tests {
     fn text_survives_a_broken_history() {
         let hist = Arc::new(MemHistory { fail_writes: true, ..Default::default() });
         let (eng, rx) = start(vec![Ok("save me")], hist);
-        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true });
+        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true, previous: None, casual: false });
         eng.send(Command::Audio(tone(500)));
         eng.send(Command::Finish);
         let (seen, done) = until_finished(&rx);
@@ -445,7 +463,7 @@ mod tests {
     fn recogniser_error_with_no_text_is_reported() {
         let hist = Arc::new(MemHistory::default());
         let (eng, rx) = start(vec![Err("boom")], hist);
-        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true });
+        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true, previous: None, casual: false });
         eng.send(Command::Audio(tone(500)));
         eng.send(Command::Finish);
         assert!(matches!(until_finished(&rx).1, Event::Failed { reason } if reason.contains("boom")));
@@ -464,7 +482,7 @@ mod tests {
         lexicon.add_word("Postiz").unwrap();
         lexicon.add_fix(&Fix { from: "post is".into(), to: "Postiz".into() }).unwrap();
         let (eng, rx, hints, _) = start_with_lexicon(vec![Ok("open post is now")], Arc::new(MemHistory::default()), lexicon);
-        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true });
+        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true, previous: None, casual: false });
         eng.send(Command::Audio(tone(500)));
         eng.send(Command::Finish);
         assert_eq!(until_finished(&rx).1, Event::Finished { id: Some(1), text: "Open Postiz now.".into(), enter: false });
@@ -474,7 +492,7 @@ mod tests {
     #[test]
     fn output_uses_australian_spelling() {
         let (eng, rx) = start(vec![Ok("i like the color of the center")], Arc::new(MemHistory::default()));
-        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true });
+        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true, previous: None, casual: false });
         eng.send(Command::Audio(tone(500)));
         eng.send(Command::Finish);
         assert_eq!(until_finished(&rx).1, Event::Finished { id: Some(1), text: "I like the colour of the centre.".into(), enter: false });
@@ -482,7 +500,7 @@ mod tests {
 
     fn dictate(script: Vec<Result<&'static str, &'static str>>, lexicon: Arc<MemLexicon>, commands: bool) -> Event {
         let (eng, rx, _, _) = start_with_lexicon(script, Arc::new(MemHistory::default()), lexicon);
-        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: commands });
+        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: commands, previous: None, casual: false });
         eng.send(Command::Audio(tone(500)));
         eng.send(Command::Finish);
         until_finished(&rx).1
@@ -498,6 +516,34 @@ mod tests {
     fn spoken_numbers_are_written_as_numbers() {
         let e = dictate(vec![Ok("it costs twenty five dollars um I I think")], Arc::new(MemLexicon::default()), true);
         assert_eq!(e, Event::Finished { id: Some(1), text: "It costs $25 I think.".into(), enter: false });
+    }
+
+    fn dictate_after(script: Vec<Result<&'static str, &'static str>>, previous: Option<&str>, casual: bool) -> Event {
+        let (eng, rx, _, _) = start_with_lexicon(script, Arc::new(MemHistory::default()), Arc::new(MemLexicon::default()));
+        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true, previous: previous.map(String::from), casual });
+        eng.send(Command::Audio(tone(500)));
+        eng.send(Command::Finish);
+        until_finished(&rx).1
+    }
+
+    #[test]
+    fn dictation_carries_on_from_a_sentence_that_trailed_off() {
+        let e = dictate_after(vec![Ok("bought some milk")], Some("We went to the shop and"), false);
+        assert_eq!(e, Event::Finished { id: Some(1), text: "bought some milk.".into(), enter: false });
+        let e = dictate_after(vec![Ok("bought some milk")], Some("We went to the shop."), false);
+        assert_eq!(e, Event::Finished { id: Some(1), text: "Bought some milk.".into(), enter: false });
+    }
+
+    #[test]
+    fn chat_style_has_no_capital_or_full_stop() {
+        let e = dictate_after(vec![Ok("Sounds good see you at six")], None, true);
+        assert_eq!(e, Event::Finished { id: Some(1), text: "sounds good see you at six".into(), enter: false });
+    }
+
+    #[test]
+    fn a_spoken_self_correction_keeps_only_the_final_thought() {
+        let e = dictate(vec![Ok("we should meet tomorrow, no wait, Friday.")], Arc::new(MemLexicon::default()), true);
+        assert_eq!(e, Event::Finished { id: Some(1), text: "We should meet Friday.".into(), enter: false });
     }
 
     #[test]
@@ -537,7 +583,7 @@ mod tests {
     fn scratch_that_removes_the_entry_and_reports_it() {
         let hist = Arc::new(MemHistory::default());
         let (eng, rx, _, _) = start_with_lexicon(vec![Ok("scratch that")], hist.clone(), Arc::new(MemLexicon::default()));
-        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true });
+        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true, previous: None, casual: false });
         eng.send(Command::Audio(tone(500)));
         eng.send(Command::Finish);
         let mut scratched = false;
@@ -583,7 +629,7 @@ mod tests {
         // A failing swap reports and changes nothing.
         eng.send(Command::SwapModel(Box::new(|| Err(CoreError::Stt("corrupt file".into())))));
         assert!(matches!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), Event::ModelSwapFailed(m) if m.contains("corrupt")));
-        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true });
+        eng.send(Command::Begin { started_at_ms: 1, spoken_commands: true, previous: None, casual: false });
         eng.send(Command::Audio(tone(500)));
         eng.send(Command::Finish);
         assert!(matches!(until_finished(&rx).1, Event::Finished { ref text, .. } if text == "From the first model."));
@@ -592,7 +638,7 @@ mod tests {
         let new = Fake(vec![Ok("from the second model")], Arc::default());
         eng.send(Command::SwapModel(Box::new(move || Ok(Box::new(new) as Box<dyn Transcriber>))));
         assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), Event::Ready);
-        eng.send(Command::Begin { started_at_ms: 2, spoken_commands: true });
+        eng.send(Command::Begin { started_at_ms: 2, spoken_commands: true, previous: None, casual: false });
         eng.send(Command::Audio(tone(500)));
         eng.send(Command::Finish);
         assert!(matches!(until_finished(&rx).1, Event::Finished { ref text, .. } if text == "From the second model."));

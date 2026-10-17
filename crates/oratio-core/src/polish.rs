@@ -24,6 +24,10 @@ fn is_filler(word: &str) -> bool {
 /// "had had") are deliberately not here.
 const STUTTERS: &[&str] = &["i", "the", "a", "an", "and", "to", "we", "you", "it", "is", "in", "of", "so", "but", "my", "he", "she", "they", "if", "or", "for", "on", "at", "with", "as", "this", "there"];
 
+/// A sentence that ends on one of these has trailed off, so it gets no full stop: whatever is said
+/// next carries on from it.
+const DANGLING: &[&str] = &["and", "but", "or", "because", "the", "a", "an", "of", "to", "which", "if", "when", "while", "as", "than", "my", "your", "our", "their", "his", "her", "its", "this", "these", "those"];
+
 fn core(token: &str) -> String {
     token.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase()
 }
@@ -94,10 +98,68 @@ pub fn polish<S: AsRef<str>>(segments: &[S]) -> String {
             out.pop();
             out.push('.');
         }
-        Some(c) if c.is_alphanumeric() || c == ')' || c == '"' => out.push('.'),
+        Some(c) if c.is_alphanumeric() || c == ')' || c == '"' => {
+            let last_word = out.split_whitespace().last().map(core).unwrap_or_default();
+            if !DANGLING.contains(&last_word.as_str()) {
+                out.push('.');
+            }
+        }
         Some(_) => {}
     }
     out
+}
+
+/// Words that keep their capital in the middle of a sentence: "I", acronyms, names in the user's
+/// dictionary, days and months, and anything with a capital inside ("iPhone").
+fn keeps_capital(word: &str, words: &[String]) -> bool {
+    let bare = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'');
+    let lower = bare.to_lowercase();
+    const NAMES: &[&str] = &[
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february", "march", "april", "june", "july", "august", "september", "october",
+        "november", "december", "australia", "australian", "english",
+    ];
+    bare == "I"
+        || bare.starts_with("I'")
+        || (bare.chars().count() >= 2 && bare.chars().all(|c| !c.is_lowercase()))
+        || bare.chars().skip(1).any(char::is_uppercase)
+        || NAMES.contains(&lower.as_str())
+        || words.iter().any(|w| w.eq_ignore_ascii_case(bare) && w.chars().any(char::is_uppercase))
+}
+
+fn lower_first(text: &str, words: &[String]) -> String {
+    let Some(first) = text.split_whitespace().next() else { return text.to_string() };
+    if keeps_capital(first, words) {
+        return text.to_string();
+    }
+    let at = text.find(|c: char| c.is_alphabetic()).unwrap_or(0);
+    let mut chars = text[at..].chars();
+    match chars.next() {
+        Some(c) => format!("{}{}{}", &text[..at], c.to_lowercase(), chars.as_str()),
+        None => text.to_string(),
+    }
+}
+
+/// Fits new dictation onto what is already on screen: if the previous text stopped mid-sentence
+/// (no full stop, or a comma), the new words carry on in lower case; after a full stop they start a sentence.
+pub fn follow_on(previous: &str, text: &str, words: &[String]) -> String {
+    let before = previous.trim_end().trim_end_matches(['"', '\'', ')', ']']);
+    let carries_on = !previous.ends_with(['\n', '\r']) && before.chars().last().is_some_and(|c| !matches!(c, '.' | '!' | '?'));
+    if carries_on && !text.starts_with('\n') {
+        lower_first(text, words)
+    } else {
+        text.to_string()
+    }
+}
+
+/// The relaxed style for chat apps: starts in lower case and has no closing full stop.
+pub fn casual(text: &str, words: &[String]) -> String {
+    let trimmed = text.trim_end();
+    let without_stop = trimmed.strip_suffix('.').filter(|rest| !rest.ends_with('.')).unwrap_or(trimmed);
+    if without_stop.starts_with('\n') {
+        without_stop.to_string()
+    } else {
+        lower_first(without_stop, words)
+    }
 }
 
 /// Speech models sometimes get stuck on near-silence and repeat one phrase over and over
@@ -173,6 +235,38 @@ mod tests {
     fn fixes_the_pronoun_i() {
         assert_eq!(polish(&["yes i think i'm ready and i'll go"]), "Yes I think I'm ready and I'll go.");
         assert_eq!(polish(&["it is in India"]), "It is in India.");
+    }
+
+    #[test]
+    fn a_sentence_that_trails_off_gets_no_full_stop() {
+        assert_eq!(polish(&["we went to the shop and"]), "We went to the shop and");
+        assert_eq!(polish(&["I think that it is because"]), "I think that it is because");
+        assert_eq!(polish(&["I think so"]), "I think so.");
+        assert_eq!(polish(&["what are you looking for"]), "What are you looking for.");
+    }
+
+    #[test]
+    fn new_dictation_carries_on_from_the_previous_text() {
+        let none: [String; 0] = [];
+        assert_eq!(follow_on("We went to the shop and", "Bought some milk.", &none), "bought some milk.");
+        assert_eq!(follow_on("Dear John,", "Thanks for the note.", &none), "thanks for the note.");
+        assert_eq!(follow_on("That was it.", "Then we left.", &none), "Then we left.");
+        assert_eq!(follow_on("What now?", "Let us go.", &none), "Let us go.");
+        assert_eq!(follow_on("Line one\n", "Next.", &none), "Next.");
+        assert_eq!(follow_on("We went to the shop and", "I bought milk.", &none), "I bought milk.");
+        assert_eq!(follow_on("Then we met", "Peter at the station.", &["Peter".to_string()]), "Peter at the station.");
+        assert_eq!(follow_on("Then we met", "NASA staff.", &none), "NASA staff.");
+        assert_eq!(follow_on("Then we met", "Friday morning.", &none), "Friday morning.");
+        assert_eq!(follow_on("He said \"stop.\"", "Then left.", &none), "Then left.", "a closing quote after a full stop still ends the sentence");
+    }
+
+    #[test]
+    fn casual_style_drops_the_capital_and_the_full_stop() {
+        let none: [String; 0] = [];
+        assert_eq!(casual("Sounds good, see you at six.", &none), "sounds good, see you at six");
+        assert_eq!(casual("Are you coming?", &none), "are you coming?");
+        assert_eq!(casual("I will be there.", &none), "I will be there");
+        assert_eq!(casual("Wait... what.", &none), "wait... what");
     }
 
     #[test]

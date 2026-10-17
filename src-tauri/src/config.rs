@@ -2,10 +2,6 @@
 
 use tauri_plugin_global_shortcut::{Code, Shortcut};
 
-/// The start/stop chord, shown in the UI. It is detected by `oratio-keys` (modifier-only
-/// combinations cannot be registered as OS hotkeys).
-pub const TOGGLE_LABEL: &str = "Ctrl + Win";
-
 /// How long the "are you cancelling?" window lasts after the first Escape.
 pub const CANCEL_GRACE_MS: u64 = 3_000;
 

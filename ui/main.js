@@ -388,7 +388,7 @@ $("search").onchange = () => {
   searchOn = $("search").checked;
   localStorage.setItem("search", searchOn ? "on" : "off");
   applySearch();
-  if (searchOn) toast(`Hold ${searchKey === "alt" ? "Alt" : "Shift"} + Ctrl + Win to search`);
+  if (searchOn) toast(`Hold ${searchKey === "alt" ? "Alt" : "Shift"} + ${$("hotkey").textContent} to search`);
 };
 document.querySelectorAll("#searchKey button").forEach((b) => (b.onclick = () => {
   searchKey = b.dataset.key;
@@ -408,6 +408,20 @@ $("searchCustom").onchange = () => {
 };
 applySearch();
 
+// The key that starts and stops dictation.
+let trigger = localStorage.getItem("trigger") ?? "ctrl_win";
+async function applyTrigger() {
+  $("trigger").value = trigger;
+  try { $("hotkey").textContent = await invoke("set_trigger", { id: trigger }); } catch { trigger = "ctrl_win"; $("trigger").value = trigger; await invoke("set_trigger", { id: trigger }); }
+}
+$("trigger").onchange = async () => {
+  trigger = $("trigger").value;
+  localStorage.setItem("trigger", trigger);
+  await applyTrigger();
+  toast(`Dictation key: ${$("hotkey").textContent}`);
+};
+applyTrigger();
+
 // Hold-to-talk and spoken commands.
 let holdTalk = localStorage.getItem("holdTalk") === "on";
 let spoken = localStorage.getItem("spoken") !== "off";
@@ -420,7 +434,7 @@ $("holdtalk").onchange = () => {
   holdTalk = $("holdtalk").checked;
   localStorage.setItem("holdTalk", holdTalk ? "on" : "off");
   applyBehaviour();
-  if (holdTalk) toast("Hold Ctrl + Win to talk, let go to finish");
+  if (holdTalk) toast(`Hold ${$("hotkey").textContent} to talk, let go to finish`);
 };
 $("spoken").onchange = () => {
   spoken = $("spoken").checked;
@@ -448,7 +462,7 @@ $("mic").onfocus = loadMics; // pick up headsets plugged in since launch
 loadMics();
 
 // Per-app rules.
-const RULE_LABELS = { enter_after: "press Enter", copy_only: "copy only" };
+const RULE_LABELS = { enter_after: "press Enter", copy_only: "copy only", casual: "chat style", casual_enter: "chat style + Enter" };
 async function renderRules() {
   let rules = [];
   try { rules = await invoke("list_app_rules"); } catch (e) { renderProblems([String(e)]); return; }

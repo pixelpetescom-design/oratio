@@ -13,7 +13,7 @@
     <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="#fff" stroke-width="3"/></svg>
     <button class="nav-btn" data-view="dictate" data-tip="Dictate" aria-label="Dictate"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
     <button class="nav-btn" data-view="history" id="navHistory" data-tip="History" aria-label="History"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4M12 8v4.5l3 2"/></svg></button>
-    <button class="nav-btn" data-view="words" data-tip="Words &amp; corrections" aria-label="Words and corrections"><svg viewBox="0 0 24 24"><path d="M4 18L9.5 5 15 18M6.2 13.5h6.6M17 9h3.5M17 13h3.5M17 17h3.5"/></svg></button>
+    <button class="nav-btn" data-view="words" data-tip="Dictionary" aria-label="Dictionary"><svg viewBox="0 0 24 24"><path d="M4 18L9.5 5 15 18M6.2 13.5h6.6M17 9h3.5M17 13h3.5M17 17h3.5"/></svg></button>
     <button class="nav-btn" data-view="meetings" id="navMeetings" data-tip="Meetings" aria-label="Meetings"><svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M2.5 19c.4-3.4 2.7-5.2 5.5-5.2s5.1 1.8 5.5 5.2M14.5 14.2c.9-.4 1.6-.5 2.5-.5 2.2 0 3.9 1.4 4.3 4.3"/></svg></button>
     <span class="rail-spacer"></span>
     <button class="nav-btn" data-view="settings" data-tip="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg></button>
@@ -80,9 +80,9 @@
     <!-- Words & corrections -->
     <section id="view-words" class="view" hidden>
       <div class="card">
-        <p class="hint">Words you add are given to the speech engine as hints. Edit any transcript in History and Oratio remembers your corrections.</p>
+        <p class="hint">Your personal dictionary. Add names, brands and jargon so Oratio hears and spells them your way. It also learns on its own: fix a word in History and Oratio remembers the correction and adds the right word here.</p>
         <form id="wordform"><span class="field-icon">Aa</span><input id="wordinput" placeholder="Add a name or term, e.g. Postiz" autocomplete="off"><button class="btn primary small">Add</button></form>
-        <h2 class="sub-h">Words</h2>
+        <h2 class="sub-h">Dictionary words</h2>
         <div id="words" class="chips"></div>
         <h2 class="sub-h">Corrections</h2>
         <div id="fixes" class="chips"></div>
@@ -105,7 +105,10 @@
         <h2>Dictation</h2>
         <label class="switch"><input type="checkbox" id="enabled" checked><span class="track"><span class="knob"></span></span><span class="text">Dictation on<span class="sub">Off = no microphone and no hotkey</span></span></label>
         <label class="switch"><input type="checkbox" id="autopaste" checked><span class="track"><span class="knob"></span></span><span class="text">Type into the active app<span class="sub">Otherwise just copy to the clipboard</span></span></label>
-        <label class="switch"><input type="checkbox" id="holdtalk"><span class="track"><span class="knob"></span></span><span class="text">Hold to talk<span class="sub">Hold Ctrl + Win while you speak and let go to finish. A quick tap still starts and stops</span></span></label>
+        <label class="field-row"><span class="text">Dictation key<span class="sub">The key that starts and stops dictating. Windows can’t see the Fn key (the keyboard keeps it to itself), so pick another one. Spare F13–F20 keys work well, and PowerToys can remap a key such as Caps Lock to F13</span></span>
+          <select id="trigger" aria-label="Dictation key"><option value="ctrl_win">Ctrl + Win</option><option value="right_ctrl">Right Ctrl</option><option value="right_alt">Right Alt</option>
+            <option value="f13">F13</option><option value="f14">F14</option><option value="f15">F15</option><option value="f16">F16</option><option value="f17">F17</option><option value="f18">F18</option><option value="f19">F19</option><option value="f20">F20</option></select></label>
+        <label class="switch"><input type="checkbox" id="holdtalk"><span class="track"><span class="knob"></span></span><span class="text">Hold to talk<span class="sub">Hold your dictation key while you speak and let go to finish. A quick tap still starts and stops</span></span></label>
         <label class="switch"><input type="checkbox" id="spoken" checked><span class="track"><span class="knob"></span></span><span class="text">Spoken commands<span class="sub">Say “new line”, “full stop”, “question mark”, “scratch that” (undo) or end with “press enter”</span></span></label>
         <label class="switch"><input type="checkbox" id="autostart"><span class="track"><span class="knob"></span></span><span class="text">Start with Windows<span class="sub">Runs quietly in the tray, always ready</span></span></label>
       </div>
@@ -113,7 +116,7 @@
       <div class="card options">
         <h2>Voice search</h2>
         <div class="switch-group">
-          <label class="switch"><input type="checkbox" id="search"><span class="track"><span class="knob"></span></span><span class="text">Voice search<span class="sub">Hold the key below with Ctrl + Win to search for what you say instead of typing it</span></span></label>
+          <label class="switch"><input type="checkbox" id="search"><span class="track"><span class="knob"></span></span><span class="text">Voice search<span class="sub">Hold the key below together with your dictation key to search for what you say instead of typing it</span></span></label>
           <div class="seg seg-2" id="searchKey" role="group" aria-label="Search key"><button data-key="shift">Shift</button><button data-key="alt">Alt</button></div>
           <select id="searchEngine" aria-label="Search engine">
             <option value="google">Google</option><option value="bing">Bing</option><option value="duckduckgo">DuckDuckGo</option>
@@ -143,7 +146,7 @@
         <p class="hint">Choose what happens in specific apps. Match part of the app’s name or window title, e.g. “discord” or “valorant”.</p>
         <form id="ruleform">
           <input id="rulePattern" placeholder="App name contains… (e.g. discord)" autocomplete="off">
-          <select id="ruleAction" aria-label="Action"><option value="enter_after">Press Enter after typing</option><option value="copy_only">Don’t type — just copy</option></select>
+          <select id="ruleAction" aria-label="Action"><option value="enter_after">Press Enter after typing</option><option value="casual">Chat style (lower case, no full stop)</option><option value="casual_enter">Chat style + press Enter</option><option value="copy_only">Don’t type — just copy</option></select>
           <button class="btn primary small">Add</button>
         </form>
         <div id="rules" class="chips"></div>

@@ -4,11 +4,10 @@
 use device_query::{DeviceQuery, DeviceState, Keycode};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{Duration, Instant};
-use oratio_core::hotkey::{ChordDetector, ChordEvent};
+use oratio_core::hotkey::{ChordDetector, ChordEvent, Trigger};
 use oratio_core::search::SearchKey;
 
 const POLL: Duration = Duration::from_millis(8);
-const HOLD_MS: u64 = 80;
 
 fn is_ctrl(k: &Keycode) -> bool {
     matches!(k, Keycode::LControl | Keycode::RControl)
@@ -16,6 +15,24 @@ fn is_ctrl(k: &Keycode) -> bool {
 
 fn is_win(k: &Keycode) -> bool {
     matches!(k, Keycode::LMeta | Keycode::RMeta)
+}
+
+/// The physical key behind a single-key trigger (None for the Ctrl+Win chord).
+fn key_of(trigger: Trigger) -> Option<Keycode> {
+    Some(match trigger {
+        Trigger::CtrlWin => return None,
+        Trigger::RightCtrl => Keycode::RControl,
+        Trigger::RightAlt => Keycode::RAlt,
+        Trigger::F(13) => Keycode::F13,
+        Trigger::F(14) => Keycode::F14,
+        Trigger::F(15) => Keycode::F15,
+        Trigger::F(16) => Keycode::F16,
+        Trigger::F(17) => Keycode::F17,
+        Trigger::F(18) => Keycode::F18,
+        Trigger::F(19) => Keycode::F19,
+        Trigger::F(20) => Keycode::F20,
+        Trigger::F(_) => return None,
+    })
 }
 
 fn is_search_key(k: &Keycode, key: SearchKey) -> bool {
@@ -31,6 +48,7 @@ fn is_search_key(k: &Keycode, key: SearchKey) -> bool {
 /// which key currently means "search" (None = voice search off, so extra keys cancel the chord as
 /// usual). `on_release` gets how many milliseconds the chord was held when it was let go. `on_failure` runs once if the watcher dies, so the app can say so.
 pub fn spawn(
+    trigger: impl Fn() -> Trigger + Send + 'static,
     search_key: impl Fn() -> Option<SearchKey> + Send + 'static,
     on_chord: impl Fn(bool) -> bool + Send + 'static,
     on_release: impl Fn(u64) + Send + 'static,
@@ -40,18 +58,27 @@ pub fn spawn(
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             let keyboard = DeviceState::new();
             let clock = Instant::now();
-            let mut detector = ChordDetector::new(HOLD_MS);
+            let mut active = trigger();
+            let mut detector = ChordDetector::new(active.hold_ms());
             loop {
                 std::thread::sleep(POLL);
+                let wanted = trigger();
+                if wanted != active {
+                    (active, detector) = (wanted, ChordDetector::new(wanted.hold_ms()));
+                }
                 let keys = keyboard.get_keys();
-                let (ctrl, win) = (keys.iter().any(is_ctrl), keys.iter().any(is_win));
                 let search = search_key();
                 let searching = search.is_some_and(|key| keys.iter().any(|k| is_search_key(k, key)));
-                // The search key is allowed alongside the chord; any other key still cancels it.
-                let other = keys.iter().any(|k| !is_ctrl(k) && !is_win(k) && !search.is_some_and(|key| is_search_key(k, key)));
-                match detector.update(clock.elapsed().as_millis() as u64, ctrl, win, other) {
+                // The search key is allowed alongside the trigger; any other key still cancels it.
+                let extra = |k: &Keycode| search.is_some_and(|key| is_search_key(k, key));
+                let (held, other) = match key_of(active) {
+                    None => (keys.iter().any(is_ctrl) && keys.iter().any(is_win), keys.iter().any(|k| !is_ctrl(k) && !is_win(k) && !extra(k))),
+                    Some(only) => (keys.contains(&only), keys.iter().any(|k| *k != only && !extra(k))),
+                };
+                match detector.update(clock.elapsed().as_millis() as u64, held, other) {
                     Some(ChordEvent::Pressed) => {
-                        if on_chord(searching) {
+                        // Only Ctrl+Win opens the Start menu on release; single keys have nothing to suppress.
+                        if on_chord(searching) && active == Trigger::CtrlWin {
                             suppress_start_menu();
                         }
                     }

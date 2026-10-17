@@ -3,6 +3,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 pub mod apps;
+pub mod backtrack;
 pub mod commands;
 pub mod engine;
 pub mod error;
